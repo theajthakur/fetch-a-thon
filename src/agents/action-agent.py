@@ -6,8 +6,8 @@ from uagents_core.contrib.protocols.chat import (
     ChatAcknowledgement, ChatMessage, TextContent, chat_protocol_spec,
 )
 
-INVENTORY_ADDR = "PASTE_INVENTORY_ADDRESS"
-SIMULATION_ADDR = "PASTE_SIMULATION_ADDRESS"
+INVENTORY_ADDR = "INVENTORY_ADDRESS"
+SIMULATION_ADDR = "SIMULATION_ADDRESS"
 
 # ---- message models (must match the other two agents exactly) ----
 class StockRequest(Model):
@@ -82,4 +82,4 @@ async def on_result(ctx: Context, sender: str, msg: SimResult):
         f"Round trip OK (dummy data): {r.get('item')} has {r.get('days_of_cover')} "
         f"days of cover, stockout probability {r.get('stockout_prob')}."))
 
-agent.include_protocol(chat_proto, publish_manifest=True)
+agent.include(chat_proto, publish_manifest=True)
