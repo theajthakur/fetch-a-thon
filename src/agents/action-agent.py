@@ -494,16 +494,34 @@ def payment_offer(o, po_no):
 
 
 def payment_offer_card(offer) -> dict:
+    """Detail card: choose FET (Fetch.ai testnet) or card (Stripe test mode), then pay or skip."""
+    advance = inr(offer["total"] * ADVANCE_PCT / 100)
     payload = {"title": "Pay the supplier advance?",
                "summary_rows": [{"label": "PO", "value": offer["po"]},
                                 {"label": "Supplier", "value": offer["supplier"]},
-                                {"label": f"Advance ({ADVANCE_PCT}%)", "value": inr(offer["total"] * ADVANCE_PCT / 100)},
+                                {"label": f"Advance ({ADVANCE_PCT}%)", "value": advance},
                                 {"label": "PO total", "value": inr(offer["total"])}],
-               "approve_cta": {"label": f"Pay {ADVANCE_PCT}% advance",
-                               "selection": {"action": "pay_advance", "po": offer["po"]}, "primary": True},
-               "reject_cta": {"label": "Skip for now", "selection": {"action": "skip_payment", "po": offer["po"]}}}
-    return {"card_protocol_version": "1", "requires_card_interaction": "true", "card_kind": "review",
+               "sub_options": {"name": "method", "kind": "radio", "label": "Pay with",
+                               "choices": [{"value": "fet", "label": "FET (Fetch.ai testnet)",
+                                            "secondary_text": "Send FET to the agent wallet, verified on-chain"},
+                                           {"value": "stripe", "label": "Card (Stripe test mode)",
+                                            "secondary_text": "Test card 4242 4242 4242 4242"}]},
+               "ctas": [{"label": f"Pay {ADVANCE_PCT}% advance",
+                         "selection": {"action": "pay_advance", "po": offer["po"]}, "primary": True},
+                        {"label": "Skip for now", "selection": {"action": "skip_payment", "po": offer["po"]}}]}
+    return {"card_protocol_version": "1", "requires_card_interaction": "true", "card_kind": "detail",
             "card_payload": json.dumps(payload), "preferred_drawer_width_px": "480"}
+
+
+def payment_method(text: str) -> str:
+    """'fet' or 'stripe' from a card selection or typed text; FET by default."""
+    try:
+        j = json.loads(text)
+        if isinstance(j, dict) and str(j.get("method", "")).lower() in ("fet", "stripe"):
+            return str(j["method"]).lower()
+    except (ValueError, TypeError):
+        pass
+    return "stripe" if re.search(r"\b(card|stripe)\b", text.lower()) else "fet"
 
 
 def payment_action(text: str):
@@ -521,7 +539,7 @@ def payment_action(text: str):
     if re.search(r"\bpay\b.*\badvance\b|^\s*pay( now)?\s*$", low):
         return "pay_advance", text
     if re.search(r"^\s*(verify|i'?ve paid|i paid|paid|done)\b", low):
-        return "verify_payment", "verify"
+        return "verify_payment", text          # keep any transaction hash ("verify tx <hash>")
     if re.search(r"\bcancel payment\b", low):
         return "cancel_payment", "cancel payment"
     return None, None
@@ -557,7 +575,7 @@ async def handle_payment(ctx: Context, sender: str, text: str) -> bool:
     action, raw = payment_action(text)
     relay = ctx.storage.get("pay_relay") or {}
     relay_active = relay.get("user") and time.time() - relay.get("t", 0) < PAYMENT_TTL
-    if action in ("verify_payment", "cancel_payment") and not relay_active and raw in ("verify", "cancel payment"):
+    if action in ("verify_payment", "cancel_payment") and not relay_active and not text.lstrip().startswith("{"):
         return False  # a plain word with no payment in progress: let the normal flow handle it
     if not action:
         return False
@@ -569,7 +587,9 @@ async def handle_payment(ctx: Context, sender: str, text: str) -> bool:
         if not offer or time.time() - offer.get("t", 0) > PAYMENT_TTL:
             await reply(ctx, sender, "There is no recently approved PO to pay. Approve a plan first.")
             return True
-        raw = (f"pay {ADVANCE_PCT}% advance for {offer['po']}, {offer['supplier']}, total {inr(offer['total'])}")
+        method = payment_method(text)
+        raw = (f"pay {ADVANCE_PCT}% advance for {offer['po']}, {offer['supplier']}, total {inr(offer['total'])}"
+               + (" by card" if method == "stripe" else " in FET"))
     ctx.storage.set("pay_relay", {"user": sender, "t": time.time()})
     ctx.logger.info(f"Forwarding to Payment Agent: {raw[:120]}")
     await ctx.send(PAYMENT_ADDR, ChatMessage(timestamp=datetime.now(timezone.utc), msg_id=uuid4(),
@@ -627,9 +647,11 @@ def make_po(p, o):
         f"Total plan cost: {inr(o['total_cost_inr'])}. Simulated stockout after this plan: {risk_label(o)} (model estimate, not a guarantee).",
     ]
     if pay_hint and PAYMENT_ADDR:
-        lines += ["", "**Next:** pay the supplier advance with the card below (Stripe test mode)."]
+        lines += ["", "**Next:** pay the supplier advance with the card below: **FET** on the Fetch.ai testnet "
+                      "(default) or **card** (Stripe test mode)."]
     elif pay_hint:
-        lines += ["", f"**Next: pay the supplier advance** (Stripe test mode) by sending:", f"`{pay_hint}`"]
+        lines += ["", "**Next: pay the supplier advance.** In FET (Fetch.ai testnet):", f"`{pay_hint} in FET`",
+                  "or by card (Stripe test mode):", f"`{pay_hint} by card`"]
     lines += [FOOTER]
     return po_no, "\n".join(lines)
 

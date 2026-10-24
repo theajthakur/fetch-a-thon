@@ -119,6 +119,21 @@ class HeroScenario(unittest.TestCase):
         again = sim.run_simulation(DATA, {"scenario": "SC1", "item": "insulin"})
         self.assertEqual(json.dumps(again, sort_keys=True), json.dumps(self.res, sort_keys=True))
 
+    def test_budget_cap_requires_signoff_when_safe_exceeds_budget(self):
+        tight = sim.run_simulation(DATA, {"scenario": "SC1", "item": "insulin",
+                                          "preferences": {"budget_cap_inr": 200000}})
+        self.assertEqual(tight["focus"]["recommended"], "bridge_SUP03")
+        self.assertIn("sign-off", tight["focus"]["recommendation_reason"])
+
+    def test_recommend_picks_lowest_risk_when_no_plan_safe(self):
+        opts = [
+            {"id": "o1", "stockout_prob": 0.20, "within_budget": True, "preferred": False, "total_cost_inr": 1000, "lead_days": 5},
+            {"id": "o2", "stockout_prob": 0.10, "within_budget": True, "preferred": False, "total_cost_inr": 2000, "lead_days": 3},
+        ]
+        rec_id, why = sim._recommend(opts)
+        self.assertEqual(rec_id, "o2")
+        self.assertIn("minimises it", why)
+
 
 class CommonRandomNumbers(unittest.TestCase):
     def test_more_stock_never_hurts(self):

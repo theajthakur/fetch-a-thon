@@ -285,12 +285,21 @@ def _build_options(data, item, eff, prefs, paths):
 
 
 def _recommend(opts):
-    pool = [o for o in opts if o["within_budget"]] or opts
-    safe = [o for o in pool if o["stockout_prob"] <= OK_PROB]
-    if safe:
-        best = sorted(safe, key=lambda o: (not o["preferred"], o["total_cost_inr"], o["lead_days"]))[0]
+    """Never recommend a plan that leaves the item at risk when a safe plan exists.
+    1. Cheapest safe plan within budget (preferred suppliers first).
+    2. Otherwise the cheapest safe plan even if over budget, flagged for budget sign-off.
+    3. Otherwise (no safe plan at all) the plan with the lowest simulated risk."""
+    key = lambda o: (not o["preferred"], o["total_cost_inr"], o["lead_days"])
+    safe = [o for o in opts if o["stockout_prob"] <= OK_PROB]
+    safe_in_budget = [o for o in safe if o["within_budget"]]
+    if safe_in_budget:
+        best = sorted(safe_in_budget, key=key)[0]
         return best["id"], "Lowest-cost plan with simulated stockout probability <= %d%%" % int(OK_PROB * 100)
-    best = sorted(pool, key=lambda o: (o["stockout_prob"], o["total_cost_inr"]))[0]
+    if safe:
+        best = sorted(safe, key=key)[0]
+        return best["id"], ("No plan within your budget cap removes the risk; this is the lowest-cost safe plan "
+                            "and needs budget sign-off")
+    best = sorted(opts, key=lambda o: (o["stockout_prob"], o["total_cost_inr"]))[0]
     return best["id"], "No plan brings simulated risk under %d%%; this one minimises it" % int(OK_PROB * 100)
 
 

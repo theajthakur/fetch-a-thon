@@ -4,7 +4,11 @@ Independent of the Action Agent: it never changes the purchase-order flow. After
 asks this agent to pay a supplier advance, for example:
     @meditwin-payment pay 10% advance for PO-20261024-373E, Himalaya MedSupply, total Rs 361,920
 
-Flow (Agent Payment Protocol, seller role):
+Default settlement: FET (fet_direct) on the Fetch.ai testnet, verified on-chain with cosmpy, as in Fetch.ai's
+official fet_direct example. Card payments (Stripe test mode) remain available with "by card".
+Optional env: DEFAULT_PAY_METHOD ("fet" | "stripe"), FET_AMOUNT (default "0.1"), FET_USE_TESTNET (default "true").
+
+Stripe flow (Agent Payment Protocol, seller role):
   1. Agent creates a Stripe Checkout Session (TEST MODE ONLY, embedded UI) and sends RequestPayment.
   2. ASI:One renders the Stripe payment card; the user pays with a test card and approves -> CommitPayment.
   3. Agent verifies the session with Stripe (paid, right amount, right PO) -> CompletePayment + receipt,
@@ -49,8 +53,12 @@ STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "").strip()
 STRIPE_PUBLISHABLE_KEY = os.getenv("STRIPE_PUBLISHABLE_KEY", "").strip()
 STRIPE_CURRENCY = (os.getenv("STRIPE_CURRENCY", "usd") or "usd").strip().lower()
 INR_PER_USD = float(os.getenv("INR_PER_USD", "84") or 84)
-STRIPE_SUCCESS_URL = os.getenv("STRIPE_SUCCESS_URL", "https://asi1.ai/").strip()
+STRIPE_SUCCESS_URL = os.getenv("STRIPE_SUCCESS_URL", "https://agentverse.ai/payment-success").strip()
 DEFAULT_ADVANCE_PCT = float(os.getenv("DEFAULT_ADVANCE_PCT", "10") or 10)
+DEFAULT_PAY_METHOD = (os.getenv("DEFAULT_PAY_METHOD", "fet") or "fet").strip().lower()   # "fet" or "stripe"
+FET_AMOUNT = os.getenv("FET_AMOUNT", "0.1").strip()        # demo settlement amount in testnet FET
+FET_USE_TESTNET = os.getenv("FET_USE_TESTNET", "true").lower() == "true"
+FET_DENOM = "atestfet" if FET_USE_TESTNET else "afet"
 MAX_PAYMENT_INR = 500000          # hard cap per payment (test mode, but keep amounts sensible)
 PENDING_TTL = 30 * 60             # Stripe sessions expire after 30 min
 DEADLINE_SECONDS = 600
@@ -62,12 +70,12 @@ SUPPLIERS = {
 }
 
 HELP = ("I'm the **MediTwin Payment Agent**. After MediTwin approves a purchase order, I collect the supplier "
-        "advance through the Agent Payment Protocol (Stripe **test mode**, no real money).\n\n"
+        "advance through the Agent Payment Protocol: in **FET** on the Fetch.ai testnet (default) or by card "
+        "(Stripe test mode). I verify every payment before issuing a receipt.\n\n"
         "Try:\n"
         "- `pay 10% advance for PO-20261024-373E, Himalaya MedSupply, total Rs 361,920`\n"
-        "- `payment status`\n"
-        "- `cancel payment`\n\n"
-        "Test card: 4242 4242 4242 4242, any future expiry, any CVC.")
+        "- `pay ... by card` to use Stripe instead\n"
+        "- `verify tx <hash>`, `payment status`, `cancel payment`")
 
 agent = Agent()
 chat_proto = Protocol(spec=chat_protocol_spec)
@@ -90,8 +98,12 @@ def payment_card(p: dict) -> dict:
     """ASI:One 'review' card: pay via the Stripe link, then verify or cancel."""
     rows = [{"label": "PO", "value": p["po"]},
             {"label": "Supplier", "value": p["supplier"] or "supplier"},
-            {"label": "Advance", "value": f"{inr(p['amount_inr'])} ({p['pct']:g}% of {inr(p['po_total_inr'])})"},
-            {"label": "Charged", "value": f"{p['currency']} {p['display_amount']} (Stripe test mode)"}]
+            {"label": "Advance", "value": f"{inr(p['amount_inr'])} ({p['pct']:g}% of {inr(p['po_total_inr'])})"}]
+    if p.get("method") == "fet":
+        rows += [{"label": "Settle with", "value": f"{p['fet_amount']} FET ({'Fetch.ai testnet' if FET_USE_TESTNET else 'mainnet'})"},
+                 {"label": "Pay to wallet", "value": p["wallet"]}]
+    else:
+        rows.append({"label": "Charged", "value": f"{p['currency']} {p['display_amount']} (Stripe test mode)"})
     payload = {"title": "Supplier advance payment",
                "summary_rows": rows,
                "approve_cta": {"label": "I've paid, verify",
@@ -201,6 +213,57 @@ def stripe_get_session(session_id: str) -> dict:
     return body
 
 
+def agent_wallet_address():
+    try:
+        return str(agent.wallet.address())
+    except Exception:
+        return None
+
+
+def _ledger():
+    from cosmpy.aerial.client import LedgerClient, NetworkConfig
+    return LedgerClient(NetworkConfig.fetchai_stable_testnet() if FET_USE_TESTNET else NetworkConfig.fetchai_mainnet())
+
+
+def fet_balance(address: str) -> int:
+    from cosmpy.crypto.address import Address
+    return int(_ledger().query_bank_balance(Address(address), denom=FET_DENOM))
+
+
+def fet_micro(amount_fet: str) -> int:
+    return int(round(float(amount_fet) * 10 ** 18))
+
+
+def verify_fet_tx(tx_hash: str, recipient: str, amount_fet: str, sender_wallet: str = None) -> list:
+    """On-chain check (as in Fetch.ai's fet_direct example): successful tx, transfer to our wallet, enough FET."""
+    try:
+        tx = _ledger().query_tx(tx_hash)
+    except Exception as e:
+        return [f"transaction not found on the Fetch.ai {'testnet' if FET_USE_TESTNET else 'mainnet'} ({str(e)[:80]})"]
+    if not tx.is_successful():
+        return ["transaction failed on-chain"]
+    ok_recipient = ok_amount = ok_sender = False
+    for etype, attrs in (tx.events or {}).items():
+        if etype != "transfer" or attrs.get("recipient") != recipient:
+            continue
+        ok_recipient = True
+        ok_sender = ok_sender or not sender_wallet or attrs.get("sender") == sender_wallet
+        amt = str(attrs.get("amount", ""))
+        if amt.endswith(FET_DENOM):
+            try:
+                ok_amount = ok_amount or int(amt[: -len(FET_DENOM)]) >= fet_micro(amount_fet)
+            except ValueError:
+                pass
+    problems = []
+    if not ok_recipient:
+        problems.append("no transfer to the MediTwin wallet in this transaction")
+    if ok_recipient and not ok_amount:
+        problems.append(f"amount is below {amount_fet} FET")
+    if ok_recipient and not ok_sender:
+        problems.append("sender wallet does not match")
+    return problems
+
+
 def check_session(p, s) -> list:
     """Problems that block a receipt: wrong session, amount or PO, or not paid yet."""
     problems = []
@@ -227,6 +290,14 @@ def record_receipt(ctx: Context, sender: str, p: dict, tx: str) -> str:
         ctx.storage.set(key, ((ctx.storage.get(key) or []) + [receipt])[-20:])
     close_pending(ctx, p, "paid", sender)
     balance = p["po_total_inr"] - p["amount_inr"]
+    if p.get("method") == "fet":
+        net = "Fetch.ai testnet" if FET_USE_TESTNET else "Fetch.ai mainnet"
+        return (f"**Payment received** (verified on the {net})\n"
+                f"- PO: {p['po']}\n- Supplier: {receipt['supplier']}\n"
+                f"- Advance: {inr(p['amount_inr'])} ({p['pct']:g}% of {inr(p['po_total_inr'])}), settled as "
+                f"{p['fet_amount']} FET (demo amount) to `{p['wallet']}`\n"
+                f"- Balance due on delivery: {inr(balance)}\n- Proof: `{tx}`\n\n"
+                f"Supplier notified to confirm dispatch (simulated). _Synthetic data; testnet FET has no real value._")
     return (f"**Payment received** (verified with Stripe, test mode)\n"
             f"- PO: {p['po']}\n- Supplier: {receipt['supplier']}\n"
             f"- Advance: {inr(p['amount_inr'])} ({p['pct']:g}% of {inr(p['po_total_inr'])}), charged "
@@ -251,6 +322,18 @@ def parse_card_action(text: str):
 
 
 def payment_request(p: dict) -> RequestPayment:
+    if p.get("method") == "fet":
+        return RequestPayment(
+            accepted_funds=[Funds(currency="FET", amount=p["fet_amount"], payment_method="fet_direct")],
+            recipient=p["wallet"],
+            deadline_seconds=DEADLINE_SECONDS,
+            reference=p["reference"],
+            description=f"{p['pct']:g}% advance ({inr(p['amount_inr'])}) for {p['po']}: {p['fet_amount']} FET demo settlement",
+            metadata={"fet_network": "stable-testnet" if FET_USE_TESTNET else "mainnet",
+                      "mainnet": "false" if FET_USE_TESTNET else "true",
+                      "provider_agent_wallet": p["wallet"], "service": "meditwin_supplier_advance",
+                      "po": p["po"], "content": f"Pay {p['fet_amount']} FET to settle the {p['po']} advance."},
+        )
     return RequestPayment(
         accepted_funds=[Funds(currency=p["currency"], amount=p["display_amount"], payment_method="stripe")],
         recipient=p["recipient"],
@@ -296,8 +379,9 @@ def close_pending(ctx: Context, p: dict, status: str, sender: str = None):
 @agent.on_event("startup")
 async def on_start(ctx: Context):
     problem = stripe_ready()
-    ctx.logger.info(f"MediTwin Payment Agent online: {ctx.agent.address} | stripe="
-                    f"{'ready (test mode)' if not problem else problem} | currency={STRIPE_CURRENCY}")
+    ctx.logger.info(f"MediTwin Payment Agent online: {ctx.agent.address} | default={DEFAULT_PAY_METHOD} | "
+                    f"FET wallet={agent_wallet_address()} ({'testnet' if FET_USE_TESTNET else 'mainnet'}) | stripe="
+                    f"{'ready (test mode)' if not problem else problem}")
 
 
 @chat_proto.on_message(ChatMessage)
@@ -316,6 +400,49 @@ async def on_chat(ctx: Context, sender: str, msg: ChatMessage):
         await say(ctx, sender, f"Sorry, the payment step failed ({type(e).__name__}: {str(e)[:150]}). No money was taken.")
 
 
+def fet_instructions(p: dict, still_pending: bool = False) -> str:
+    net = "Fetch.ai testnet" if FET_USE_TESTNET else "Fetch.ai mainnet"
+    head = (f"Payment for {p['po']} is still pending." if still_pending else
+            f"Requesting a **{p['pct']:g}% advance of {inr(p['amount_inr'])}** for **{p['po']}**"
+            f"{' to ' + p['supplier'] if p['supplier'] else ''} (PO total {inr(p['po_total_inr'])}), "
+            f"settled in **FET** on the {net} as a **{p['fet_amount']} FET** demo payment.")
+    return (f"{head}\n\n"
+            f"1. Approve the FET payment card if your client shows one, or send **{p['fet_amount']} FET** "
+            f"({'testnet' if FET_USE_TESTNET else 'mainnet'}) from any Fetch wallet to:\n`{p['wallet']}`\n"
+            f"2. Press **I've paid, verify**, or type `verify tx <transaction hash>`.\n\n"
+            f"I check the transfer on-chain before issuing a receipt. "
+            f"_{'Testnet FET has no real value.' if FET_USE_TESTNET else 'Mainnet: real FET.'}_")
+
+
+async def verify_fet_pending(ctx: Context, sender: str, p: dict, text: str, buyer_wallet: str = None):
+    """Verify by transaction hash when given, otherwise by the wallet balance increase since the request."""
+    m = re.search(r"\b([A-Fa-f0-9]{64})\b", text or "")
+    if m:
+        tx = m.group(1).upper()
+        if ctx.storage.get(f"tx_{tx}"):
+            await say(ctx, sender, "That transaction was already used for a receipt.")
+            return
+        problems = await asyncio.to_thread(verify_fet_tx, tx, p["wallet"], p["fet_amount"], buyer_wallet)
+        proof = tx
+    else:
+        problems, proof = [], None
+        try:
+            now = await asyncio.to_thread(fet_balance, p["wallet"])
+            if p.get("start_balance") is None:
+                problems.append("could not read the starting balance; please send the transaction hash")
+            elif now - int(p["start_balance"]) < fet_micro(p["fet_amount"]):
+                problems.append(f"no new {p['fet_amount']} FET received yet")
+            else:
+                proof = f"wallet balance +{(now - int(p['start_balance'])) / 10 ** 18:g} FET"
+        except Exception as e:
+            problems.append(f"could not reach the Fetch.ai ledger ({str(e)[:80]})")
+    if problems:
+        await say(ctx, sender, f"Not verified yet: {'; '.join(problems)}.\n\n" + fet_instructions(p, still_pending=True),
+                  payment_card(p))
+        return
+    await say(ctx, sender, record_receipt(ctx, sender, p, proof))
+
+
 async def handle_chat(ctx: Context, sender: str, text: str, t: str):
     action, ref = parse_card_action(text)
     pending = load_pending(ctx, sender, ref)
@@ -323,6 +450,9 @@ async def handle_chat(ctx: Context, sender: str, text: str, t: str):
     if action == "verify_payment" or (pending and re.search(r"\b(verify|i paid|i've paid|ive paid|done|completed)\b", t)):
         if not pending:
             await say(ctx, sender, "There is no pending payment to verify. Say `payment status` to see receipts.")
+            return
+        if pending.get("method") == "fet":
+            await verify_fet_pending(ctx, sender, pending, text)
             return
         s = await asyncio.to_thread(stripe_get_session, pending["checkout"]["id"])
         problems = check_session(pending, s)
@@ -352,15 +482,20 @@ async def handle_chat(ctx: Context, sender: str, text: str, t: str):
             if r["transaction_id"] in seen:
                 continue
             seen.add(r["transaction_id"])
-            lines.append(f"- {r['po']}: {inr(r['amount_inr'])} to {r['supplier']} (paid {r['paid_at']}, Stripe test)")
+            lines.append(f"- {r['po']}: {inr(r['amount_inr'])} to {r['supplier']} (paid {r['paid_at']})")
         msg = "**Payments**\n" + ("\n".join(lines[:5]) if lines else "No payments yet.")
         if pending:
-            msg += f"\n\nPending: {inr(pending['amount_inr'])} for {pending['po']} (complete the Stripe card above)."
+            msg += f"\n\nPending: {inr(pending['amount_inr'])} for {pending['po']} (complete the payment card above)."
         await say(ctx, sender, msg)
         return
 
     req = parse_payment_request(text)
     wants_pay = bool(re.search(r"\b(pay|payment|advance|settle)\b", t))
+
+    if pending and (not wants_pay or req["po"] in (None, pending["po"])) and pending.get("method") == "fet":
+        await ctx.send(sender, payment_request(pending))
+        await say(ctx, sender, fet_instructions(pending, still_pending=True), payment_card(pending))
+        return
 
     if pending and (not wants_pay or req["po"] in (None, pending["po"])):
         await say(ctx, sender, f"Payment of {inr(pending['amount_inr'])} for {pending['po']} is still pending.\n"
@@ -378,15 +513,38 @@ async def handle_chat(ctx: Context, sender: str, text: str, t: str):
                                "`pay 10% advance for PO-20261024-373E, Himalaya MedSupply, total Rs 361,920`")
         return
 
-    problem = stripe_ready()
-    if problem:
-        await say(ctx, sender, problem)
-        return
-
     amount_inr = round(req["po_total_inr"] * req["pct"] / 100.0, 2)
     if amount_inr > MAX_PAYMENT_INR:
         await say(ctx, sender, f"{inr(amount_inr)} is above this demo's cap of {inr(MAX_PAYMENT_INR)} per payment. "
                                "Try a smaller advance, e.g. 10%.")
+        return
+
+    method = "stripe" if re.search(r"\b(card|stripe|usd)\b", t) else (
+        "fet" if re.search(r"\bfet\b", t) else DEFAULT_PAY_METHOD)
+    if method == "fet":
+        wallet = agent_wallet_address()
+        if not wallet:
+            await say(ctx, sender, "FET payments are unavailable (agent wallet not found). Say `pay ... by card` to use Stripe.")
+            return
+        try:
+            start_balance = await asyncio.to_thread(fet_balance, wallet)
+        except Exception as e:
+            ctx.logger.warning(f"Could not read wallet balance: {e}")
+            start_balance = None
+        reference = f"{req['po']}-{uuid4().hex[:6].upper()}"
+        p = {"reference": reference, "method": "fet", "po": req["po"], "supplier": req["supplier"],
+             "pct": req["pct"], "po_total_inr": req["po_total_inr"], "amount_inr": amount_inr,
+             "fet_amount": FET_AMOUNT, "wallet": wallet, "start_balance": start_balance,
+             "recipient": wallet, "user": sender, "status": "pending", "t": time.time()}
+        save_pending(ctx, sender, p)
+        ctx.logger.info(f"RequestPayment {reference}: {FET_AMOUNT} FET to {wallet} for {req['po']}")
+        await ctx.send(sender, payment_request(p))   # fet_direct request: ASI:One can render its wallet card
+        await say(ctx, sender, fet_instructions(p), payment_card(p))
+        return
+
+    problem = stripe_ready()
+    if problem:
+        await say(ctx, sender, problem)
         return
     minor, currency, display = to_minor_units(amount_inr)
     reference = f"{req['po']}-{uuid4().hex[:6].upper()}"
@@ -419,6 +577,20 @@ async def on_ack(ctx: Context, sender: str, msg: ChatAcknowledgement):
 @payment_proto.on_message(CommitPayment)
 async def on_commit(ctx: Context, sender: str, msg: CommitPayment):
     ctx.logger.info(f"CommitPayment from {sender[:12]}: tx={msg.transaction_id} ref={msg.reference}")
+    if msg.funds.payment_method == "fet_direct" and msg.transaction_id:
+        p = load_pending(ctx, sender, msg.reference)
+        if not p or p.get("method") != "fet":
+            await ctx.send(sender, CancelPayment(transaction_id=msg.transaction_id, reason="no matching pending FET payment"))
+            return
+        buyer = (msg.metadata or {}).get("buyer_fet_wallet") or (msg.metadata or {}).get("buyer_fet_address")
+        problems = await asyncio.to_thread(verify_fet_tx, msg.transaction_id, p["wallet"], p["fet_amount"], buyer)
+        if problems:
+            await ctx.send(sender, CancelPayment(transaction_id=msg.transaction_id, reason="; ".join(problems)))
+            await say(ctx, sender, f"Payment not accepted: {'; '.join(problems)}.")
+            return
+        await ctx.send(sender, CompletePayment(transaction_id=msg.transaction_id))
+        await say(ctx, sender, record_receipt(ctx, sender, p, msg.transaction_id))
+        return
     if msg.funds.payment_method != "stripe" or not msg.transaction_id:
         await ctx.send(sender, CancelPayment(transaction_id=msg.transaction_id,
                                              reason="Unsupported payment method (expected stripe)."))
