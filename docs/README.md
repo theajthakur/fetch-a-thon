@@ -13,6 +13,7 @@ Welcome to the comprehensive technical documentation for **MediTwin: a Digital T
 | 🤖 **[Agent & Protocol Reference](agent-spec.md)** | Agentverse endpoints, Agent Chat Protocol specs, Pydantic message schemas, Interactive Card payload format, and storage | uAgents & Agentverse engineers |
 | 📊 **[Dataset & Twin Schema](dataset-and-twin-schema.md)** | 12 critical formulary items, 7 supplier reliability profiles, sister hospital network, and enterprise ERP integration guide | Domain specialists, hospital IT teams |
 | 🚀 **[Deployment & Operations Runbook](deployment-and-run-guide.md)** | Local installation, Agentverse hosting steps, environment variables, startup sequence, and troubleshooting | Operators, DevOps, testers |
+| 💳 **[Payment Agent](payment-agent.md)** | Agent Payment Protocol (seller), FET on the Fetch.ai testnet with on-chain verification, Stripe test-mode fallback, configuration and safeguards | uAgents engineers, judges |
 
 ---
 
