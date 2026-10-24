@@ -37,11 +37,13 @@ Every number is produced by deterministic, seeded code, so you can repeat the re
 | Simulation Agent | [Agentverse profile](https://agentverse.ai/agents/details/agent1q229ftx9ae3vlwjy87hw7cnvaa6dm8g99q5lh0ky5e824kz69xcage63jj3/profile) |
 | Full documentation | [`docs/`](docs/README.md) |
 
-## Screenshots
+## Screenshots: Intent to Action in ASI:One
 
-| Risk brief | What-if + fix options | Approved PO + transfers |
-|---|---|---|
-| ![Risk brief](assets/screenshots/1-brief.png) | ![What-if result](assets/screenshots/2-whatif.png) | ![Purchase order](assets/screenshots/3-po.png) |
+| 1. Daily Risk Brief (Proactive Twin State) | 2. What-If Simulation & Cascade Analysis |
+|:---:|:---:|
+| ![Daily Risk Brief](assets/screenshots/1-brief.png) | ![What-If Disruption Analysis](assets/screenshots/2-whatif.png) |
+| **3. ASI:One Interactive Decision Card (Fetch.ai Card Protocol)** | **4. Approved Purchase Order & Action Execution** |
+| ![ASI:One Interactive Decision Card](assets/screenshots/2-whatif-1.png) | ![Generated PO & Transfer Requests](assets/screenshots/3-po.png) |
 
 ## Agent registry
 
