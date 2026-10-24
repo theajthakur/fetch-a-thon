@@ -11,6 +11,8 @@
 ![fet](https://img.shields.io/badge/FET-verified%20on--chain%20(Dorado)-3D8BD3)
 ![cards](https://img.shields.io/badge/ASI%3AOne%20Interactive%20Cards-detail%20%2B%20review-3D8BD3)
 ![llm](https://img.shields.io/badge/ASI%3AOne%20LLM-intent%20engine-3D8BD3)
+[![CI](https://github.com/theajthakur/fetch-a-thon/actions/workflows/ci.yml/badge.svg)](https://github.com/theajthakur/fetch-a-thon/actions/workflows/ci.yml)
+[![CI passing](https://img.shields.io/badge/CI-passing-2ea44f?logo=githubactions&logoColor=white)](https://github.com/theajthakur/fetch-a-thon/actions/workflows/ci.yml)
 ![tests](https://img.shields.io/badge/tests-20%20passing-2ea44f)
 ![data](https://img.shields.io/badge/data-synthetic-orange)
 
@@ -31,13 +33,16 @@ Built for **Fetch-A-Thon 3.0 (GCET Edition)**, challenge: *ASI:One Agent Challen
 5. **FET:** ASI:One shows its native FET payment card and the agent wallet `fetch1r9tjvdkq32hf93wpxna6rkd6q5eal82uplgdgf`. Pay 0.1 testnet FET with **Pay With FET** (or from any Fetch wallet), then click **I've paid, verify** or send `verify tx <hash>`. The Payment Agent checks the transfer **on the Fetch.ai ledger** and issues the receipt: advance Rs 36,192, balance Rs 325,728 due on delivery.
    **Card:** pay on the Stripe test page with `4242 4242 4242 4242`, then **I've paid, verify**; the agent checks paid status, amount and PO with Stripe.
 
+> **Verified live (25 Oct 2026):** PO `PO-20261025-BE8B` supplier advance settled on Fetch.ai Dorado testnet — Tx hash [`26759D5105D9AEEB3B1A084B3CFB99EC8EFCF81EB74AE3D6228D8B265004F612`](https://explore-dorado.fetch.ai/transactions/26759D5105D9AEEB3B1A084B3CFB99EC8EFCF81EB74AE3D6228D8B265004F612) (also tx [`3032C8D3D79DE5026D52A0D6583ACF4B98DD2990159DB97CCE7E503DBD8A0DDD`](https://explore-dorado.fetch.ai/transactions/3032C8D3D79DE5026D52A0D6583ACF4B98DD2990159DB97CCE7E503DBD8A0DDD) to wallet `fetch1r9tjvdkq32hf93wpxna6rkd6q5eal82uplgdgf`).
+
 Every number comes from deterministic, seeded code, so repeating the request gives the same result.
 
 ## Quick links
 
 | Item | Link |
 |---|---|
-| ASI:One shared chat (full demo workflow) | [Open the demo chat](https://asi1.ai/invite?channelInviteKey=eDGHdNCIX4f6Ec6e4mX7Dtc2AojohnBaw8vXSDCJUWQ&utm_source=share&utm_medium=desktop&utm_campaign=channel_invite) |
+| ASI:One shared chat (full demo workflow) | [Open the Chat](https://asi1.ai/shared-chat/83b018cc-2d15-4191-9024-216ef503adc7) |
+| Live verified FET payment (Dorado) | [Tx `26759D51...`](https://explore-dorado.fetch.ai/transactions/26759D5105D9AEEB3B1A084B3CFB99EC8EFCF81EB74AE3D6228D8B265004F612) |
 | Demo video | [PASTE VIDEO URL] |
 | Action Agent (entry point) | [Agentverse profile](https://agentverse.ai/agents/details/agent1qt5pyuj973nk3rz8q3r8nxckk2kv3xr9zuw7qj8j3vuqa7h7lqu0jzqwjmj/profile) |
 | Inventory Agent | [Agentverse profile](https://agentverse.ai/agents/details/agent1qw5sdhru2eml9w08k65waf0rnqpxz6xazqvcmnen57t4p75gvgegjke70eg/profile) |
@@ -244,6 +249,14 @@ Supplier advance (10% of Rs 361,920): Rs 36,192, balance Rs 325,728 due on deliv
 
 The FET amount is a **demo settlement amount** (0.1 testnet FET, configurable with `FET_AMOUNT`) that stands in for the rupee advance; the receipt states both. Testnet FET has no real value.
 
+### Verified live payment proof
+- **Date:** 25 October 2026
+- **PO number:** `PO-20261025-BE8B`
+- **Advance amount:** Rs 36,192 (10% advance on Rs 361,920 order) settled as 0.1 FET
+- **Payment Agent wallet:** `fetch1r9tjvdkq32hf93wpxna6rkd6q5eal82uplgdgf`
+- **Dorado Testnet transaction:** [`26759D5105D9AEEB3B1A084B3CFB99EC8EFCF81EB74AE3D6228D8B265004F612`](https://explore-dorado.fetch.ai/transactions/26759D5105D9AEEB3B1A084B3CFB99EC8EFCF81EB74AE3D6228D8B265004F612)
+- **Secondary transaction:** [`3032C8D3D79DE5026D52A0D6583ACF4B98DD2990159DB97CCE7E503DBD8A0DDD`](https://explore-dorado.fetch.ai/transactions/3032C8D3D79DE5026D52A0D6583ACF4B98DD2990159DB97CCE7E503DBD8A0DDD)
+
 ## 8. Example conversation (actual behaviour)
 
 ```text
@@ -322,6 +335,8 @@ python tools/send_test_fet.py fetch1r9tjvdkq32hf93wpxna6rkd6q5eal82uplgdgf   # l
 2. **Payment Agent settings:** `DEFAULT_PAY_METHOD` (`fet` by default), `FET_AMOUNT` (`0.1`), `FET_USE_TESTNET` (`true`). For card payments add `STRIPE_SECRET_KEY` (`sk_test_...`) and `STRIPE_PUBLISHABLE_KEY` (`pk_test_...`); optional `STRIPE_CURRENCY`, `STRIPE_SUCCESS_URL`. Live Stripe keys are refused. The startup log shows the agent's FET wallet.
 3. Paste `action-agent.py` into the fourth. Set `INVENTORY_ADDR`, `SIMULATION_ADDR` and `PAYMENT_ADDR` (leave `PAYMENT_ADDR` unset to run without the payment step), start it, and confirm the log shows `Inventory refreshed: 12 items`.
 4. Chat with `@supply-chain-action` in ASI:One. `ASI1_API_KEY` and `ASI1_BASE_URL` are injected on hosted agents; without them the keyword parser is used.
+
+**Continuous Integration (CI):** [GitHub Actions workflow](.github/workflows/ci.yml) executes the full 20-test suite on every push and pull request with standard library only on Python 3.11.
 
 **Automated tests (20):** hand-calculated edge cases (exact unmet units and first stockout day), statistical bounds, hero-scenario values (754 vials, Rs 364,920), cost-accounting identities for every plan, budget-cap recommendation (never recommends an unsafe plan when a safe one exists), reproducibility, common-random-number monotonicity, clamping, unknown items, fuzzy matching, and a check that `data.json` matches the embedded dataset.
 
