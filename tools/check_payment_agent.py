@@ -2,6 +2,10 @@
 Needs: pip install uagents==0.26.1 uagents-core==0.4.12 requests.  Run: python tools/check_payment_agent.py"""
 import asyncio, importlib.util, json, os
 os.environ.update(STRIPE_SECRET_KEY="sk_test_x", STRIPE_PUBLISHABLE_KEY="pk_test_x")
+try:
+    asyncio.get_event_loop()
+except RuntimeError:
+    asyncio.set_event_loop(asyncio.new_event_loop())
 spec = importlib.util.spec_from_file_location(
     "pay", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src", "agents", "payment-agent.py"))
 P = importlib.util.module_from_spec(spec); spec.loader.exec_module(P)
