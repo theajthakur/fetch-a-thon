@@ -1,3 +1,5 @@
+<img src="assets/wave-top.svg" width="100%" alt="Navbar Wave" />
+
 # MediTwin: a Digital Twin for the Medical Supply Chain
 
 ![tag:innovationlab](https://img.shields.io/badge/innovationlab-3D8BD3)
@@ -246,3 +248,5 @@ print(format_text(result))
 | `[Person 2]` | Dataset, simulation engine, documentation |
 
 Built at Fetch-A-Thon 3.0, GCET Edition, 24 October 2026.
+
+<img src="assets/wave-bottom.svg" width="100%" alt="Footer Wave" />
