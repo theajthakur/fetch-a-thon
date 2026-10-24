@@ -110,7 +110,7 @@ sequenceDiagram
 - **All three agents run hosted on Agentverse**, with the Agent Chat Protocol and a published manifest on the Action Agent.
 - **Uses the ASI:One LLM injected into hosted agents** (`ASI1_API_KEY`, `ASI1_BASE_URL`) as the intent engine, with a circuit breaker: on a quota or authentication error the LLM is paused for 10 minutes and a strict keyword parser takes over, so the agent never stops answering.
 - **Tuned for the hosted runtime:** non-critical state kept in memory because hosted storage calls are slow; inventory synced on an interval; message de-duplication; replies close the session with `EndSessionContent`. Measured agent-side latency is about 8 to 14 seconds per request (Simulation Agent round trip about 1 to 2 seconds).
-- **ASI Interactive Card:** fix options are sent as a carousel card (one slide per plan with an *Approve & draft PO* button) through `MetadataContent`. Clicks are parsed as selection JSON first, then as planner prose; the full text answer is always sent too, so clients without card support still work.
+- **ASI Interactive Card:** fix options are sent as a detail card (risk summary, a radio list of plans with the recommended one pre-selected, and *Approve & draft PO* / *Cancel* buttons) through `MetadataContent`. Clicks are parsed as selection JSON first, then as planner prose; the full text answer is always sent too, so clients without card support still work.
 
 ## 4. The simulation model
 
@@ -187,7 +187,7 @@ Agent:  Saved your preferences ... Re-running your last scenario:
 |---|---|
 | Multi-agent collaboration | Done: 3 agents, typed agent-to-agent messages |
 | Error handling and recovery | Done: watchdog timeouts, snapshot fallback, LLM circuit breaker, de-duplication, crash-safe handlers |
-| ASI Interactive Cards | Implemented: carousel approval card with text fallback |
+| ASI Interactive Cards | Implemented: detail approval card (radio plan picker) with text fallback |
 | Real-time data | Inventory synced every 60 s; external signals (weather, shortage notices) on the roadmap |
 | Payment Protocol | Not in this submission |
 | Keeps operating after the hackathon | Yes: hosted agents; data layer swappable for an ERP API |
