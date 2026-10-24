@@ -7,6 +7,7 @@ import json
 import os
 import re
 import time
+import traceback
 from datetime import datetime, timedelta, timezone
 from typing import List
 from uuid import uuid4
@@ -16,8 +17,8 @@ from uagents_core.contrib.protocols.chat import (
     ChatAcknowledgement, ChatMessage, TextContent, chat_protocol_spec,
 )
 
-INVENTORY_ADDR = "agent1qw5sdhru2eml9w08k65waf0rnqpxz6xazqvcmnen57t4p75gvgegjke70eg"
-SIMULATION_ADDR = "agent1q229ftx9ae3vlwjy87hw7cnvaa6dm8g99q5lh0ky5e824kz69xcage63jj3"
+INVENTORY_ADDR = "PASTE_INVENTORY_AGENT_ADDRESS"
+SIMULATION_ADDR = "PASTE_SIMULATION_AGENT_ADDRESS"
 INV_TIMEOUT = 15   # seconds before falling back to the Simulation Agent's embedded snapshot
 SIM_TIMEOUT = 40   # seconds before telling the user the simulation is unavailable
 TRANSFER_COST_INR = 1500
@@ -371,8 +372,19 @@ async def sync_inventory(ctx: Context):
 async def on_chat(ctx: Context, sender: str, msg: ChatMessage):
     await ctx.send(sender, ChatAcknowledgement(timestamp=datetime.now(timezone.utc),
                                                acknowledged_msg_id=msg.msg_id))
-    text = " ".join(c.text for c in msg.content if isinstance(c, TextContent)).strip()
+    ctx.logger.info(f"Chat from {sender[:16]}... content={[type(c).__name__ for c in msg.content]}")
+    try:
+        await handle_chat(ctx, sender, msg)
+    except Exception as e:
+        ctx.logger.error("Chat handler crashed: " + traceback.format_exc()[-1500:])
+        await reply(ctx, sender, f"Sorry, MediTwin hit an internal error ({type(e).__name__}). Please try again.")
+
+
+async def handle_chat(ctx: Context, sender: str, msg: ChatMessage):
+    text = " ".join(getattr(c, "text", "") or "" for c in msg.content
+                    if getattr(c, "type", "") == "text" or isinstance(c, TextContent)).strip()
     if not text:
+        ctx.logger.info("No text in message (session/metadata content); nothing to do")
         return
     mid = str(msg.msg_id)
     seen = ctx.storage.get("seen_msgs") or []
@@ -495,7 +507,12 @@ async def on_result(ctx: Context, sender: str, msg: SimResult):
         return
     meta = next((r["meta"] for r in msg.results if "meta" in r), {})
     items = [r for r in msg.results if "item_id" in r]
-    text, pending = format_result(req, items, meta)
+    try:
+        text, pending = format_result(req, items, meta)
+    except Exception:
+        ctx.logger.error("format_result crashed: " + traceback.format_exc()[-1500:])
+        await reply(ctx, user, "The simulation finished but its result could not be formatted. Please try again.")
+        return
     ctx.storage.set(f"pending_{user}", pending)
     if req["kind"] != "brief":
         ctx.storage.set(f"last_{user}", {"scenario": req.get("scenario"), "item": req.get("item")})
