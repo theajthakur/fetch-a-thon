@@ -348,6 +348,7 @@ python tools/send_test_fet.py fetch1r9tjvdkq32hf93wpxna6rkd6q5eal82uplgdgf   # l
 | [docs/simulation-model.md](docs/simulation-model.md) | Monte Carlo model, formulas, assumptions |
 | [docs/dataset-and-twin-schema.md](docs/dataset-and-twin-schema.md) | Items, suppliers, sister hospitals, ERP mapping |
 | [docs/deployment-and-run-guide.md](docs/deployment-and-run-guide.md) | Local and Agentverse setup, testing, troubleshooting |
+| [docs/payment-agent.md](docs/payment-agent.md) | Agent Payment Protocol messages, FET and Stripe flows, verification, configuration |
 
 ## 12. Limitations and responsible use
 
