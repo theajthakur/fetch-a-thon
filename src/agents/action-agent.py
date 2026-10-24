@@ -25,8 +25,8 @@ try:  # Agentverse interactive cards travel in a MetadataContent block (dict[str
 except ImportError:
     MetadataContent = None
 
-INVENTORY_ADDR = "PASTE_INVENTORY_AGENT_ADDRESS"
-SIMULATION_ADDR = "PASTE_SIMULATION_AGENT_ADDRESS"
+INVENTORY_ADDR = os.getenv("INVENTORY_ADDR", "agent1qw5sdhru2eml9w08k65waf0rnqpxz6xazqvcmnen57t4p75gvgegjke70eg")
+SIMULATION_ADDR = os.getenv("SIMULATION_ADDR", "agent1q229ftx9ae3vlwjy87hw7cnvaa6dm8g99q5lh0ky5e824kz69xcage63jj3")
 INV_TIMEOUT = 15   # seconds before falling back to the Simulation Agent's embedded snapshot
 SIM_TIMEOUT = 40   # seconds before telling the user the simulation is unavailable
 TRANSFER_COST_INR = 1500

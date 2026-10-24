@@ -20,19 +20,19 @@ Built for **Fetch-A-Thon 3.0 (GCET Edition)**, challenge: *ASI:One Agent Challen
 |---|---|
 | ASI:One shared chat (full demo workflow) | `[PASTE PUBLIC ASI:ONE CHAT URL]` |
 | Demo video | `[PASTE VIDEO URL]` |
-| Action Agent (entry point) on Agentverse | `[PASTE AGENT PROFILE URL]` |
-| Inventory Agent on Agentverse | `[PASTE AGENT PROFILE URL]` |
-| Simulation Agent on Agentverse | `[PASTE AGENT PROFILE URL]` |
+| Action Agent (entry point) on Agentverse | `https://agentverse.ai/agents/details/agent1qt5pyuj973nk3rz8q3r8nxckk2kv3xr9zuw7qj8j3vuqa7h7lqu0jzqwjmj/profile` |
+| Inventory Agent on Agentverse | `https://agentverse.ai/agents/details/agent1qw5sdhru2eml9w08k65waf0rnqpxz6xazqvcmnen57t4p75gvgegjke70eg/profile` |
+| Simulation Agent on Agentverse | `https://agentverse.ai/agents/details/agent1q229ftx9ae3vlwjy87hw7cnvaa6dm8g99q5lh0ky5e824kz69xcage63jj3/profile` |
 
 ## Agent registry
 
-| Agent | Handle | Address | Discoverable in ASI:One |
-|---|---|---|---|
-| Action Agent (orchestrator) | `[meditwin-action]` | `[agent1q...]` | Yes, **start here** |
-| Inventory Agent | `[meditwin-inventory]` | `[agent1q...]` | Called by Action Agent |
-| Simulation Agent | `[meditwin-simulation]` | `[agent1q...]` | Called by Action Agent |
+| Agent | Name on Agentverse | Handle | Address | Discoverable in ASI:One |
+|---|---|---|---|---|
+| **Action Agent** (orchestrator) | `Supply Chain Action Agent` | `@supply-chain-action` | [`agent1qt5pyuj973nk3rz8q3r8nxckk2kv3xr9zuw7qj8j3vuqa7h7lqu0jzqwjmj`](https://agentverse.ai/agents/details/agent1qt5pyuj973nk3rz8q3r8nxckk2kv3xr9zuw7qj8j3vuqa7h7lqu0jzqwjmj/profile) | Yes, **start here** |
+| **Inventory Agent** (twin state) | `meditwin-inventory` | `@meditwin-inventory` | [`agent1qw5sdhru2eml9w08k65waf0rnqpxz6xazqvcmnen57t4p75gvgegjke70eg`](https://agentverse.ai/agents/details/agent1qw5sdhru2eml9w08k65waf0rnqpxz6xazqvcmnen57t4p75gvgegjke70eg/profile) | Called by Action Agent |
+| **Simulation Agent** (what-if) | `meditwin-simulation` | `@meditwin-simulation` | [`agent1q229ftx9ae3vlwjy87hw7cnvaa6dm8g99q5lh0ky5e824kz69xcage63jj3`](https://agentverse.ai/agents/details/agent1q229ftx9ae3vlwjy87hw7cnvaa6dm8g99q5lh0ky5e824kz69xcage63jj3/profile) | Called by Action Agent |
 
-> **Try it:** open [ASI:One](https://asi1.ai/), type `@[meditwin-action] Supplier SUP01 is delayed 10 days and insulin demand is up 30%. What happens and what should we do?`
+> **Try it:** open [ASI:One](https://asi1.ai/), type `@[supply-chain-action] Supplier SUP01 is delayed 10 days and insulin demand is up 30%. What happens and what should we do?`
 
 ---
 
@@ -120,26 +120,24 @@ Alternatives: order only from Himalaya (Rs 472,320), from LifeLine (Rs 511,680)
 
 | Requirement | Status | Where |
 |---|---|---|
-| Agents registered on Agentverse | `[ ]` | Agent registry above |
-| Agent Chat Protocol implemented | `[ ]` | `agents/*/agent.py` |
-| Discoverable and usable from ASI:One | `[ ]` | Shared chat link above |
-| Full workflow inside ASI:One, no custom frontend | `[ ]` | Demo video + shared chat |
-| Meaningful tool execution / multi-agent orchestration | `[ ]` | Action Agent calls Inventory and Simulation |
-| Public GitHub repo with run instructions | `[ ]` | This repo |
-| `innovationlab` and `hackathon` badges | Done | Top of this README |
-
-*(Tick each box as it is verified before submission.)*
+| Agents registered on Agentverse | **Done** | Agent registry above (all 3 live on Agentverse) |
+| Agent Chat Protocol implemented | **Done** | [`src/agents/action-agent.py`](src/agents/action-agent.py) |
+| Discoverable and usable from ASI:One | **Done** | `@supply-chain-action` discoverable in ASI:One |
+| Full workflow inside ASI:One, no custom frontend | **Done** | Chat interface + Interactive Cards |
+| Meaningful tool execution / multi-agent orchestration | **Done** | Action Agent orchestrates Inventory & Simulation Agents |
+| Public GitHub repo with run instructions | **Done** | This repo + [`docs/`](docs/) |
+| `innovationlab` and `hackathon` badges | **Done** | Top of this README |
 
 ### Bonus items
 
 | Bonus | Status |
 |---|---|
-| Multi-agent collaboration (3 agents, real agent-to-agent calls) | `[ ]` |
-| Reliability: error handling and recovery from failed calls | `[ ]` |
-| Real-time data (Open-Meteo weather feeding cold-chain risk) | `[ ]` Planned / optional |
-| ASI Interactive Cards (approval card) | `[ ]` Planned / optional |
-| Payment Protocol | `[ ]` Not in scope for this submission |
-| Could continue operating after the hackathon | Yes: data layer is swappable for a real inventory system or ERP API |
+| Multi-agent collaboration (3 agents, real agent-to-agent calls) | **Done** |
+| Reliability: error handling and recovery from failed calls | **Done** (Dual watchdogs, RAM caching, circuit breaker, fallback datasets) |
+| ASI Interactive Cards (approval card) | **Done** (Detail card with radio plan picker + approve/cancel CTAs) |
+| Real-time data (Open-Meteo weather feeding cold-chain risk) | Planned / optional |
+| Payment Protocol | Not in scope for this submission |
+| Could continue operating after the hackathon | **Yes**: data layer is swappable for a real inventory system or ERP API |
 
 ## 6. Example conversation
 
@@ -160,22 +158,29 @@ Agent:  Updated. Using LifeLine (4 days), cost Rs 395,080, risk 0%.
         Purchase order and supplier email drafted below ...
 ```
 
-## 7. Repository structure
+## 7. Repository structure & documentation
 
 ```text
 .
-├── README.md
-├── data.json                 # synthetic hospital twin: items, suppliers, sister hospitals, scenarios
+├── README.md                          # Hackathon overview & entry point
+├── requirements.txt                   # Dependencies (uagents, cosmpy, etc.)
 ├── src/
-│   └── sim.py                # simulation engine (run_simulation, format_text)
-├── agents/
-│   ├── action_agent/         # orchestrator + personal agent
-│   ├── inventory_agent/      # twin state
-│   └── simulation_agent/     # wraps sim.py
-└── requirements.txt
+│   ├── sim.py                         # Deterministic Monte Carlo simulation engine
+│   ├── main.py                        # Entry runner
+│   ├── dataset/
+│   │   └── data.json                  # Synthetic hospital digital twin
+│   └── agents/
+│       ├── action-agent.py            # User-facing orchestrator + personal agent
+│       ├── inventory-agent.py         # Digital twin state layer
+│       └── simulation-agent.py        # What-if engine wrapping sim.py
+└── docs/
+    ├── README.md                      # Documentation index portal
+    ├── architecture.md                # System topology, sequence diagrams & fault tolerance
+    ├── simulation-model.md            # Mathematical model & Monte Carlo mechanics
+    ├── agent-spec.md                  # Protocol models, card specifications & schemas
+    ├── dataset-and-twin-schema.md     # Formulary items, suppliers & ERP integration
+    └── deployment-and-run-guide.md    # Local & Agentverse setup, testing & troubleshooting
 ```
-
-*(Adjust paths to match the final layout.)*
 
 ## 8. Running and testing locally
 
@@ -212,7 +217,13 @@ print(format_text(result))
 
 `scenario` may also be a custom object, for example `{"supplier_id": "SUP04", "delay_days": 6, "demand_multiplier": 1.5}`.
 
-**Agents:** `[ADD: how to run the agents locally, required environment variables (ASI1_API_KEY, ASI1_BASE_URL are injected on Agentverse hosted agents), and the order to start them.]`
+**Running the agents:**
+1. Start the **Inventory Agent** (`src/agents/inventory-agent.py`) to expose the hospital's digital twin state.
+2. Start the **Simulation Agent** (`src/agents/simulation-agent.py`) to wrap the Monte Carlo engine.
+3. Configure `INVENTORY_ADDR` and `SIMULATION_ADDR` in `src/agents/action-agent.py`, then start the **Action Agent**.
+4. Required environment variables: `ASI1_API_KEY` and `ASI1_BASE_URL` (injected automatically on Agentverse hosted agents; if absent or quota is exhausted, the built-in heuristic parser activates seamlessly).
+
+For step-by-step local execution commands and Agentverse hosting instructions, see [docs/deployment-and-run-guide.md](docs/deployment-and-run-guide.md).
 
 **Tests we ran:** hero scenario (`SC1`), cold-chain failure (`SC2`), demand surge (`SC3`), a custom oxygen scenario (96% stockout probability, critical), baseline with no disruption, unknown item name, garbage numeric input (clamped), and invalid or missing data (clean error, no crash). A full scan of 12 items takes about 0.2 seconds.
 
@@ -244,8 +255,8 @@ print(format_text(result))
 
 | Name | Role |
 |---|---|
-| `[Person 1]` | Agentverse agents, agent-to-agent messaging, Action Agent |
-| `[Person 2]` | Dataset, simulation engine, documentation |
+| `Vijay Singh` | Agentverse agents, agent-to-agent messaging, Action Agent |
+| `Aryata Srivastava` | Dataset, simulation engine, documentation |
 
 Built at Fetch-A-Thon 3.0, GCET Edition, 24 October 2026.
 
