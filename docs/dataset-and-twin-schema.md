@@ -1,6 +1,6 @@
 # MediTwin Digital Twin Schema & Dataset Reference
 
-> **Data Source**: [`src/dataset/data.json`](file:///c:/Users/sriva/OneDrive/Documents/projects/DevPair/fetch-a-thon/src/dataset/data.json)  
+> **Data Source**: [`src/dataset/data.json`](../src/dataset/data.json)  
 > *Synthetic benchmark modeled after tier-2 Indian district hospital logistics (Delhi-NCR).*
 
 ---

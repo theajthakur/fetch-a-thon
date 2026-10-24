@@ -152,5 +152,12 @@ class Robustness(unittest.TestCase):
         self.assertEqual(sim.find_item(DATA, "O2 cylinder")["id"], "I04")
 
 
+class DatasetInSync(unittest.TestCase):
+    def test_embedded_data_matches_dataset_file(self):
+        path = os.path.join(ROOT, "src", "dataset", "data.json")
+        self.assertEqual(sim.DATA, json.load(open(path, encoding="utf-8")),
+                         "src/dataset/data.json and the DATA embedded in simulation-agent.py differ")
+
+
 if __name__ == "__main__":
     unittest.main()

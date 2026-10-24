@@ -675,7 +675,7 @@ DATA = json.loads(r'''
     {
       "id": "I10",
       "name": "N95 Respirator Mask",
-      "piece": "piece",
+      "unit": "piece",
       "criticality": 3,
       "cold_chain": false,
       "stock": 2000,

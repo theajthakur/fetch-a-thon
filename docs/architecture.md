@@ -50,7 +50,7 @@ flowchart TB
 
     subgraph SimulationLayer ["Simulation & What-If Engine"]
         SA["Simulation Agent<br/>(agent1q229ftx...)"]
-        SimCore["Monte Carlo Sim Core<br/>(sim.py - 1,000 runs)"]
+        SimCore["Monte Carlo Sim Core<br/>(simulation-agent.py - 1,000 runs)"]
         EmbeddedState["Fallback Twin Snapshot<br/>(data.json)"]
     end
 
@@ -78,9 +78,9 @@ flowchart TB
 
 | Agent | Module | Primary Role | Discoverable in ASI:One | Core State / Dependencies |
 |---|---|---|---|---|
-| **Action Agent** | [`action-agent.py`](file:///c:/Users/sriva/OneDrive/Documents/projects/DevPair/fetch-a-thon/src/agents/action-agent.py) | Front door, dialogue state machine, intent parser, PO generator | **Yes** (User-facing) | Session storage, open request pool, LLM fallback circuit |
-| **Inventory Agent** | [`inventory-agent.py`](file:///c:/Users/sriva/OneDrive/Documents/projects/DevPair/fetch-a-thon/src/agents/inventory-agent.py) | Digital twin source of truth (stock, demand, lead times) | No (Internal) | In-memory catalog (12 items, 7 suppliers) |
-| **Simulation Agent** | [`simulation-agent.py`](file:///c:/Users/sriva/OneDrive/Documents/projects/DevPair/fetch-a-thon/src/agents/simulation-agent.py) | Wrapped Monte Carlo engine; what-if scenario evaluator | No (Internal) | Embedded baseline snapshot, simulation core |
+| **Action Agent** | [`action-agent.py`](../src/agents/action-agent.py) | Front door, dialogue state machine, intent parser, PO generator | **Yes** (User-facing) | Session storage, open request pool, LLM fallback circuit |
+| **Inventory Agent** | [`inventory-agent.py`](../src/agents/inventory-agent.py) | Digital twin source of truth (stock, demand, lead times) | No (Internal) | In-memory catalog (12 items, 7 suppliers) |
+| **Simulation Agent** | [`simulation-agent.py`](../src/agents/simulation-agent.py) | Wrapped Monte Carlo engine; what-if scenario evaluator | No (Internal) | Embedded baseline snapshot, simulation core |
 
 ### 3.1. Action Agent (`action-agent.py`)
 The Action Agent acts as the orchestrator and personal assistant for the procurement officer:
@@ -107,7 +107,7 @@ The Inventory Agent acts as the digital twin of City General Hospital's pharmacy
 The Simulation Agent encapsulates the discrete-event Monte Carlo what-if simulation:
 - **Payload Ingestion**: Receives `SimRequest` containing the current inventory snapshot, scenario parameters (preset or custom), focus item, and user preferences.
 - **Dynamic Data Validation**: Validates the incoming inventory data using `validate_data()`. If the Action Agent passed an empty or corrupted inventory payload, the agent gracefully falls back to its embedded copy of `data.json`.
-- **Execution**: Invokes [`sim.py`](file:///c:/Users/sriva/OneDrive/Documents/projects/DevPair/fetch-a-thon/src/sim.py) over 1,000 independent Monte Carlo runs using a seeded random number generator for unbiased comparison across mitigation options.
+- **Execution**: Invokes the engine in [`simulation-agent.py`](../src/agents/simulation-agent.py) over 1,000 seeded Monte Carlo runs, with demand paths and supplier-delay draws shared across all mitigation options (common random numbers).
 - **Response**: Returns a structured `SimResult` containing per-item risk profiles, criticality-weighted risk scores, days of cover, expected stockout dates, and ranked multi-modal fix options.
 
 ---
@@ -278,16 +278,16 @@ MediTwin supports **Agentverse Interactive Cards** via the `MetadataContent` spe
 ```
 fetch-a-thon/
 ├── README.md                          # Hackathon project overview & submission portal
-├── requirements.txt                   # Production Python dependencies (uagents, cosmpy, etc.)
+├── requirements.txt                   # uagents, uagents-core, openai (agents only)
+├── tests/test_simulation_agent.py     # 18 stdlib-only tests against the deployed engine
 ├── src/
-│   ├── sim.py                         # Standalone deterministic Monte Carlo simulation engine
-│   ├── main.py                        # Local agent launcher / entry script
+│   ├── main.py                        # CLI: runs the engine from simulation-agent.py
 │   ├── dataset/
 │   │   └── data.json                  # Digital twin baseline: items, suppliers, sister hospitals
 │   └── agents/
 │       ├── action-agent.py            # User-facing orchestrator, LLM intent parser, PO generator
 │       ├── inventory-agent.py         # Digital twin state provider (City General Hospital)
-│       └── simulation-agent.py        # What-if analysis engine wrapping sim.py with fallback data
+│       └── simulation-agent.py        # Simulation engine v1.1 + embedded dataset (single source)
 └── docs/
     ├── architecture.md                # (This file) Complete system architecture & data flow
     ├── simulation-model.md            # Mathematical formulation of the Monte Carlo engine

@@ -209,19 +209,25 @@ Agent:  Saved your preferences ... Re-running your last scenario:
 .
 ├── README.md
 ├── requirements.txt               # uagents, uagents-core, openai (agents only; tests need none)
-├── src/agents/
-│   ├── action-agent.py            # ASI:One entry point, orchestrator, personal agent
-│   ├── inventory-agent.py         # Digital-twin state
-│   └── simulation-agent.py        # Simulation engine v1.1 + embedded synthetic dataset
+├── src/
+│   ├── main.py                    # CLI: runs the engine from simulation-agent.py, no installs
+│   ├── dataset/data.json          # Synthetic dataset (a test checks it matches the embedded copy)
+│   └── agents/
+│       ├── action-agent.py        # ASI:One entry point, orchestrator, personal agent
+│       ├── inventory-agent.py     # Digital-twin state
+│       └── simulation-agent.py    # Simulation engine v1.1 + embedded synthetic dataset
 ├── tests/
 │   └── test_simulation_agent.py   # Imports the deployed agent file with uagents stubbed
 └── docs/                          # See section 7
 ```
 
-**Run the tests (standard library only, about 1 second)**
+**Run from a clean checkout (standard library only, no installs)**
 
 ```bash
-python -m unittest discover -s tests -v
+python src/main.py                                   # hero scenario SC1, focus insulin
+python src/main.py --scenario none --item oxygen     # baseline
+python src/main.py --json                            # full JSON result
+python -m unittest discover -s tests -v              # 18 tests, about 1 second
 ```
 
 The tests load `src/agents/simulation-agent.py` exactly as deployed, so the code that is tested is the code that runs on Agentverse.
@@ -240,7 +246,7 @@ A custom scenario replaces `id`, e.g. `{"supplier_id": "SUP04", "delay_days": 6,
 2. Paste `action-agent.py` into the third. Set the `INVENTORY_ADDR` and `SIMULATION_ADDR` environment variables (or edit the defaults at the top of the file), start it, and confirm the log shows `Inventory refreshed: 12 items`.
 3. Chat with `@supply-chain-action` in ASI:One. `ASI1_API_KEY` and `ASI1_BASE_URL` are injected on hosted agents; without them the keyword parser is used.
 
-**Automated tests (`tests/test_simulation_agent.py`, 17 tests):** hand-calculated edge cases (exact unmet units and first stockout day), statistical bounds, hero-scenario values (754 vials, Rs 364,920), cost-accounting identities for every plan, reproducibility, common-random-number monotonicity, clamping, unknown items and fuzzy matching.
+**Automated tests (`tests/test_simulation_agent.py`, 18 tests):** hand-calculated edge cases (exact unmet units and first stockout day), statistical bounds, hero-scenario values (754 vials, Rs 364,920), cost-accounting identities for every plan, reproducibility, common-random-number monotonicity, clamping, unknown items, fuzzy matching, and a check that `data.json` matches the embedded dataset.
 
 **Manual tests:** `SC1`, `SC2`, `SC3`, custom oxygen scenario (SUP04 delayed 6 days + demand x1.5 gives 96% stockout probability, critical), baseline, unknown item names, out-of-range numbers (clamped), invalid data (clean error), Inventory Agent offline (snapshot fallback), duplicate messages, LLM quota exhausted (keyword fallback). A full 12-item scan takes about 0.2 s.
 

@@ -1,6 +1,6 @@
 # MediTwin Simulation Engine: Mathematical & Algorithmic Model
 
-> **Module Reference**: [`sim.py`](file:///c:/Users/sriva/OneDrive/Documents/projects/DevPair/fetch-a-thon/src/sim.py)  
+> **Module Reference**: [`simulation-agent.py`](../src/agents/simulation-agent.py)  
 > *Pure Python standard library implementation (`math`, `random`, `json`). Zero external dependencies.*
 
 ---
@@ -53,13 +53,13 @@ To eliminate model hallucination while retaining sub-second execution speeds, Me
 
 ## 2. Core Model Parameters & Assumptions
 
-All mathematical constants are defined at the module level in [`sim.py`](file:///c:/Users/sriva/OneDrive/Documents/projects/DevPair/fetch-a-thon/src/sim.py#L7-L16):
+All mathematical constants are defined at the top of the engine in [`simulation-agent.py`](../src/agents/simulation-agent.py):
 
 | Constant | Value | Definition & Rationale |
 |---|---|---|
 | `PLAN_DAYS` | `21` | Forward-looking planning horizon in days (~3 weeks). Balances visibility with actionable lead times. |
 | `SAFETY` | `1.15` | Safety stock factor (+15% demand buffer above nominal demand over the 21-day period). |
-| `RUNS` | `1000` | Sample size for Monte Carlo iterations. Delivers 99% confidence within $\pm 1.5\%$ variance. |
+| `RUNS` | `1000` | Monte Carlo runs per evaluation. Sampling error is at most about ±3 percentage points (95%, at p = 0.5) and much smaller near 0 or 1; see *Engine v1.1* below. |
 | `UNRELIABLE_DELAY_DAYS` | `3` | Penalty days added to delivery if a supplier fails reliability check on a given run. |
 | `EXPEDITE_LEAD_FACTOR` | `0.5` | Expedited order compresses supplier lead time by 50% ($\lceil \text{lead} \times 0.5 \rceil$). |
 | `EXPEDITE_COST_FACTOR` | `1.2` | Expedited orders incur a 20% surcharge on unit purchase price. |
@@ -210,7 +210,7 @@ In single-item procurement spreadsheets, a delay announcement for **Supplier SUP
 
 When SUP01 suffers a 10-day delay, MediTwin scans the complete formulary and discovers:
 - **Insulin**: Days of cover drops to 11.5 days vs. new supplier lead of 17 days $\to$ **100% stockout risk (Critical)**.
-- **Heparin**: Days of cover is 15.9 days vs. new supplier lead of 15 days $\to$ **8% stockout risk (Low alert, cascading impact)**.
+- **Heparin**: Days of cover is 15.9 days vs. new supplier lead of 15 days $\to$ **about 10% simulated stockout risk (Low alert, cascading impact)**.
 
 By flagging Heparin alongside Insulin, procurement can bundle mitigation orders before secondary stockouts materialize.
 
@@ -223,3 +223,16 @@ By flagging Heparin alongside Insulin, procurement can bundle mitigation orders 
 | **`SC1`** | Supplier delay + Insulin surge | `supplier_id: "SUP01"`, `delay_days: 10`, `demand_multiplier: {"I01": 1.3}` | Insulin Glargine, Heparin | Diabetic ketoacidosis crisis, heparin shortage |
 | **`SC2`** | Heatwave cold-chain failure | `spoilage_pct: 0.25`, `cold_chain: true` | Insulin, Hepatitis B, Oxytocin | Postpartum hemorrhage, neonatal vaccination failure |
 | **`SC3`** | Respiratory outbreak | `demand_multiplier: {"I04": 1.6, "I10": 1.5}` | Medical Oxygen (D-type), N95 Masks | ICU hypoxemia, respiratory cross-infection |
+
+
+## Engine v1.1: common random numbers and uncertainty reporting
+
+**Common random numbers.** For each item, `scenario_paths()` generates one 21-day demand path and one supplier-delay draw `u` per run, once, from the seeded generator. Every plan for that item is evaluated on these same paths. A supplier delivery is late in a run when `u < 1 - reliability`, so a less reliable supplier is late in a superset of the runs where a more reliable one is late. Differences between plans therefore come from the plans themselves rather than from sampling noise, and adding stock or a transfer can never increase simulated risk (this is covered by a test).
+
+**Uncertainty reporting.** Each result carries `stockout_runs`, `runs` and `stockout_prob_upper95`, a one-sided 95% upper bound: the exact Clopper-Pearson bound `1 - 0.05^(1/n)` when no stockout is observed (about 0.3% for n = 1,000) and the Wilson bound otherwise. A plan with no simulated stockouts is reported as "0/1,000 runs (95% bound <0.3%)", never as "0% risk". These are model estimates under the stated assumptions, not guarantees.
+
+**Plan accounting.** Each plan records `supplier_order_qty`, `supplier_unit_cost_inr`, `supplier_cost_inr`, each transfer's `qty` and `cost_inr`, `transfer_units`, `transfer_cost_inr`, `total_units` and `total_cost_inr`. The same fields feed the simulation inflows, the recommendation and the purchase order. For `SC1` the recommended bridge is 754 vials x Rs 480 = Rs 361,920 from Himalaya MedSupply plus two transfers (150 + 80 vials, Rs 1,500 each), total Rs 364,920.
+
+**Not modelled.** Supplier capacity limits, minimum order quantities, expiry, competition between hospitals for the same sister-hospital stock, and delay distributions (a late delivery is a flat +3 days). The engine lists these in `assumptions.not_modelled`.
+
+**Hand-checked case (in the test suite).** 100 units, demand exactly 10/day, one supplier with 20-day lead and perfect reliability: stock lasts 10 days, days 11 to 19 are each short by 10 units, so stockout probability is 1.0, expected unmet units 90 and first stockout day 11.

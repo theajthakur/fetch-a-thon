@@ -59,8 +59,9 @@ ASI1_BASE_URL="https://api.asi1.ai/v1"
 You can verify the mathematical models and Monte Carlo simulations immediately without starting any network agents or installing uagents:
 
 ```bash
-cd fetch-a-thon/src
-python sim.py
+cd fetch-a-thon
+python src/main.py
+python -m unittest discover -s tests -v
 ```
 
 **Expected Output:**
@@ -69,13 +70,13 @@ Scenario: Supplier delay + insulin demand surge
 Risk overview: 1 critical, 0 high, 0 medium, 11 low
 
 - Insulin Glargine 100IU/mL vial: 11.5 days of cover, stockout probability 100%, risk 100.0 (critical)
-- Heparin 5000IU vial: 15.9 days of cover, stockout probability 8%, risk 7.1 (low)
+- Heparin 5000IU vial: 15.9 days of cover, simulated stockout 9.8%, risk 7.8 (low)
 ...
 Focus: Insulin Glargine 100IU/mL vial
-  * Bridge: transfer from sister hospitals + order from Himalaya MedSupply (6d) | risk 0% | Rs 364,920 <- recommended
-  * Bridge: transfer from sister hospitals + order from LifeLine Biologics (4d) | risk 0% | Rs 395,080
-  * Order from Himalaya MedSupply (6d lead) | risk 0% | Rs 472,320
-  * Order from LifeLine Biologics (4d lead) | risk 0% | Rs 511,680
+  * Bridge: transfer 230 from sister hospitals + order 754 from Himalaya MedSupply (6d) | stockout 0/1,000 runs (95% bound <0.3%) | Rs 364,920 <- recommended
+  * Bridge: transfer 230 from sister hospitals + order 754 from LifeLine Biologics (4d) | stockout 0/1,000 runs (95% bound <0.3%) | Rs 395,080
+  * Order 984 from Himalaya MedSupply (6d lead) | stockout 0/1,000 runs (95% bound <0.3%) | Rs 472,320
+  * Order 984 from LifeLine Biologics (4d lead) | stockout 0/1,000 runs (95% bound <0.3%) | Rs 511,680
   Why: Lowest-cost plan keeping stockout risk <= 5%
 ```
 
@@ -116,15 +117,15 @@ python -c "from src.agents import action_agent; action_agent.agent.run()"
 2. **Deploy the Agents in Sequence**:
    - **Agent 1: Inventory Agent**:
      - Create new Hosted Agent $\to$ Name: `meditwin-inventory`.
-     - Paste code from [`src/agents/inventory-agent.py`](file:///c:/Users/sriva/OneDrive/Documents/projects/DevPair/fetch-a-thon/src/agents/inventory-agent.py).
+     - Paste code from [`src/agents/inventory-agent.py`](../src/agents/inventory-agent.py).
      - Start agent and copy its address (`agent1qw5...`).
    - **Agent 2: Simulation Agent**:
      - Create new Hosted Agent $\to$ Name: `meditwin-simulation`.
-     - Paste code from [`src/agents/simulation-agent.py`](file:///c:/Users/sriva/OneDrive/Documents/projects/DevPair/fetch-a-thon/src/agents/simulation-agent.py).
+     - Paste code from [`src/agents/simulation-agent.py`](../src/agents/simulation-agent.py).
      - Start agent and copy its address (`agent1q22...`).
    - **Agent 3: Action Agent**:
      - Create new Hosted Agent $\to$ Name: `Supply Chain Action Agent`.
-     - Paste code from [`src/agents/action-agent.py`](file:///c:/Users/sriva/OneDrive/Documents/projects/DevPair/fetch-a-thon/src/agents/action-agent.py).
+     - Paste code from [`src/agents/action-agent.py`](../src/agents/action-agent.py).
      - Default addresses for `INVENTORY_ADDR` and `SIMULATION_ADDR` are already pre-configured.
      - Start agent.
 3. **Register Action Agent on ASI:One**:
@@ -145,12 +146,12 @@ Test the end-to-end conversational pipeline with these sample prompts:
 > *"Supplier SUP01 is delayed 10 days and insulin demand is up 30%. What happens and what should we do?"*  
 > **Expected Response**:
 > - Insulin stockout probability: 100% (Critical).
-> - Cascade detection: Heparin stockout probability lifts to 8%.
+> - Cascade detection: Heparin simulated stockout probability lifts to about 10%.
 > - Fix plan: Recommends Bridge Strategy (inter-hospital transfer + order from Himalaya MedSupply for ₹364,920).
 
 ### 3. Setting User Preferences:
 > *"Prefer LifeLine Biologics and keep budget under 5 lakh."*  
-> **Expected Response**: Confirms preference saved; automatically recalculates fix recommendations using LifeLine Biologics (₹395,080, 0% risk).
+> **Expected Response**: Confirms preference saved; automatically recalculates fix recommendations using LifeLine Biologics (₹395,080, 0/1,000 simulated stockouts).
 
 ### 4. Interactive Approval & PO Drafting:
 > *"YES"* (or click **Approve & draft PO** on the interactive card).  
