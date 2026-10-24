@@ -1,12 +1,8 @@
-"""MediTwin Inventory Agent: holds the hospital's live stock twin (synthetic data) and serves
-snapshots in the exact schema the Simulation Agent validates."""
 from datetime import datetime, timezone
 from typing import List
-
 from uagents import Agent, Context, Model
 
 
-# ---- message models (must match the Action Agent exactly) ----
 class StockRequest(Model):
     request_id: str
     focus_items: List[str] = []
@@ -19,13 +15,15 @@ class StockSnapshot(Model):
 
 
 SUPPLIER_NAMES = {
-    "SUP01": "Apex Pharma Distributors", "SUP02": "LifeLine Biologics", "SUP03": "Himalaya MedSupply",
-    "SUP04": "GasPro Industrial Gases", "SUP05": "CityMed Wholesale", "SUP06": "SafeGuard Surgicals",
+    "SUP01": "Apex Pharma Distributors",
+    "SUP02": "LifeLine Biologics",
+    "SUP03": "Himalaya MedSupply",
+    "SUP04": "GasPro Industrial Gases",
+    "SUP05": "CityMed Wholesale",
+    "SUP06": "SafeGuard Surgicals",
     "SUP07": "Bharat Generics",
 }
 
-# (id, name, unit, criticality, cold_chain, stock, daily_demand, demand_std, reorder_level,
-#  [(supplier_id, lead_days, unit_cost_inr), ...])   -- identical to data.json
 RAW_ITEMS = [
     ("I01", "Insulin Glargine 100IU/mL vial", "vial", 5, True, 900, 60, 12, 600,
      [("SUP01", 7, 450), ("SUP02", 4, 520), ("SUP03", 6, 480)]),
@@ -46,26 +44,45 @@ RAW_ITEMS = [
 
 
 def build_items():
-    as_of = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    out = []
-    for iid, name, unit, crit, cold, stock, dd, std, rl, sups in RAW_ITEMS:
-        out.append({
-            "id": iid, "name": name, "unit": unit, "criticality": crit, "cold_chain": cold,
-            "stock": stock, "daily_demand": dd, "demand_std": std, "reorder_level": rl,
-            "below_reorder": stock <= rl, "as_of": as_of,
-            "suppliers": [{"id": s, "name": SUPPLIER_NAMES.get(s, s), "lead_days": l, "unit_cost": c}
-                          for s, l, c in sups],
+    timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    catalog = []
+    for item_id, name, unit, crit, cold, stock, dd, std, reorder, suppliers in RAW_ITEMS:
+        catalog.append({
+            "id": item_id,
+            "name": name,
+            "unit": unit,
+            "criticality": crit,
+            "cold_chain": cold,
+            "stock": stock,
+            "daily_demand": dd,
+            "demand_std": std,
+            "reorder_level": reorder,
+            "below_reorder": stock <= reorder,
+            "as_of": timestamp,
+            "suppliers": [
+                {
+                    "id": sup_id,
+                    "name": SUPPLIER_NAMES.get(sup_id, sup_id),
+                    "lead_days": lead,
+                    "unit_cost": cost,
+                }
+                for sup_id, lead, cost in suppliers
+            ],
         })
-    return out
+    return catalog
 
 
 def filter_items(items, focus):
-    """Optional filter by id or name fragment; empty or no-match -> full list (Simulation needs all items)."""
     if not focus:
         return items
-    f = [q.strip().lower() for q in focus if q and q.strip()]
-    hit = [it for it in items if any(q == it["id"].lower() or q in it["name"].lower() for q in f)]
-    return hit or items
+    queries = [q.strip().lower() for q in focus if q and q.strip()]
+    if not queries:
+        return items
+    matched = [
+        item for item in items
+        if any(q == item["id"].lower() or q in item["name"].lower() for q in queries)
+    ]
+    return matched or items
 
 
 agent = Agent()
@@ -73,16 +90,17 @@ agent = Agent()
 
 @agent.on_event("startup")
 async def on_start(ctx: Context):
-    ctx.logger.info(f"Inventory Agent up. Address: {ctx.agent.address} | {len(RAW_ITEMS)} items loaded")
+    ctx.logger.info(f"Inventory agent online: {ctx.agent.address} ({len(RAW_ITEMS)} items)")
 
 
 @agent.on_message(model=StockRequest)
 async def on_stock_request(ctx: Context, sender: str, msg: StockRequest):
-    ctx.logger.info(f"StockRequest {msg.request_id} from {sender} focus={msg.focus_items}")
+    ctx.logger.info(f"Handling stock request {msg.request_id} from {sender}")
     try:
         items = filter_items(build_items(), msg.focus_items)
-    except Exception as e:  # never leave the Action Agent hanging
-        ctx.logger.error(f"Snapshot build failed: {e}")
-        items = []  # Simulation Agent falls back to its embedded snapshot
+    except Exception as exc:
+        ctx.logger.error(f"Error preparing snapshot: {exc}")
+        items = []
+
     await ctx.send(sender, StockSnapshot(request_id=msg.request_id, items=items, synthetic=True))
-    ctx.logger.info(f"Replied StockSnapshot {msg.request_id} with {len(items)} items")
+    ctx.logger.info(f"StockSnapshot {msg.request_id} dispatched ({len(items)} items)")
