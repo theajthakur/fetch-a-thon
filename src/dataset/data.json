@@ -411,7 +411,7 @@
     ],
     "default_preferences": {
         "preferred_suppliers": [],
-        "budget_cap_inr": 200000,
+        "budget_cap_inr": 600000,
         "risk_tolerance": "low",
         "target_cover_days": 30
     }
