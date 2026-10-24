@@ -20,6 +20,10 @@ try:  # ASI:One closes the turn and renders the answer when the reply ends the s
     from uagents_core.contrib.protocols.chat import EndSessionContent
 except ImportError:
     EndSessionContent = None
+try:  # Agentverse interactive cards travel in a MetadataContent block (dict[str, str])
+    from uagents_core.contrib.protocols.chat import MetadataContent
+except ImportError:
+    MetadataContent = None
 
 INVENTORY_ADDR = "PASTE_INVENTORY_AGENT_ADDRESS"
 SIMULATION_ADDR = "PASTE_SIMULATION_AGENT_ADDRESS"
@@ -91,21 +95,101 @@ HELP = ("I'm **MediTwin**, a live digital twin of City General Hospital's medica
         "- Prefer LifeLine Biologics and keep my budget under 5 lakh")
 FOOTER = "_Synthetic data. Logistics decision support, not clinical advice._"
 
+# Hosted-agent storage calls are slow (~2s each in the logs), so short-lived, non-critical state lives in memory.
+MEM = {"seen": [], "lasttext": {}, "llm_off_until": 0.0, "inv_cache": None}
+
 agent = Agent()
 chat_proto = Protocol(spec=chat_protocol_spec)
 
 
 # ---------------- helpers ----------------
-def make_reply(text: str) -> ChatMessage:
+def make_reply(text: str, card: dict = None) -> ChatMessage:
     content = [TextContent(type="text", text=text)]
-    if EndSessionContent is not None:
+    if card and MetadataContent is not None:
+        content.append(MetadataContent(type="metadata", metadata=card))  # card needs the session open
+    elif EndSessionContent is not None:
         content.append(EndSessionContent(type="end-session"))
     return ChatMessage(timestamp=datetime.now(timezone.utc), msg_id=uuid4(), content=content)
 
 
-async def reply(ctx: Context, to: str, text: str):
-    ctx.logger.info(f"Reply to {to[:16]}... ({len(text)} chars): {text[:120]!r}")
-    await ctx.send(to, make_reply(text))
+async def reply(ctx: Context, to: str, text: str, card: dict = None):
+    ctx.logger.info(f"Reply to {to[:16]}... ({len(text)} chars, card={'yes' if card else 'no'}): {text[:120]!r}")
+    await ctx.send(to, make_reply(text, card))
+
+
+# ---------------- interactive approval card ----------------
+CARDS_ENABLED = True
+CARD_KIND = "detail"     # summary rows + radio list of plans + Approve / Cancel buttons
+
+
+def card_selection(i, o):
+    """Identifiers every CTA carries; they come back as JSON (direct @mention) or in planner prose."""
+    return {"action": "approve_plan", "option": str(i), "plan_id": o["id"]}
+
+
+def build_card_payload(pending):
+    """'detail' card: what is at risk, every fix plan as a radio choice (recommended first), Approve/Cancel."""
+    opts, rec = pending.get("options") or [], pending.get("recommended")
+    if not opts:
+        return None
+    ordered = sorted(opts, key=lambda o: o["id"] != rec)
+    rec_opt = next((o for o in opts if o["id"] == rec), None)
+    rows = [{"label": "Item", "value": pending["item"]},
+            {"label": "Scenario", "value": pending.get("scenario", "-")}]
+    if pending.get("risk_now") is not None:
+        rows.append({"label": "Stockout risk if no action", "value": pct(pending["risk_now"])})
+    if rec_opt:
+        rows.append({"label": "Recommended", "value": f"{rec_opt['label']} ({inr(rec_opt['total_cost_inr'])})"})
+    choices = [{"value": o["id"],
+                "label": ("Recommended: " if o["id"] == rec else "") + o["label"],
+                "secondary_text": f"Risk {pct(o['stockout_prob'])} | {inr(o['total_cost_inr'])} | {o['lead_days']}d"
+                                  + ("" if o.get("within_budget", True) else " | over budget")}
+               for o in ordered]
+    return {"title": f"Fix plan for {pending['item']}",
+            "summary_rows": rows,
+            "sub_options": {"name": "plan_id", "kind": "radio", "label": "Choose a plan", "choices": choices},
+            "ctas": [{"label": "Approve & draft PO", "selection": {"action": "approve_plan"}, "primary": True},
+                     {"label": "Cancel", "selection": {"action": "cancel_plan"}}]}
+
+
+def build_card(pending):
+    if not (CARDS_ENABLED and pending):
+        return None
+    try:
+        payload = build_card_payload(pending)
+        if not payload:
+            return None
+        return {"card_protocol_version": "1", "requires_card_interaction": "true", "card_kind": CARD_KIND,
+                "card_payload": json.dumps(payload), "preferred_drawer_width_px": "540"}
+    except Exception:
+        return None  # never let a card problem block the text answer
+
+
+def parse_selection(text, pending):
+    """Card click -> option number, "cancel", or None. Tries JSON first, then planner prose."""
+    opts = pending.get("options") or []
+    try:
+        j = json.loads(text)
+        if isinstance(j, dict):
+            act = str(j.get("action", ""))
+            if act == "cancel_plan":
+                return "cancel"
+            if act == "approve_plan":
+                for i, o in enumerate(opts, 1):
+                    if o["id"] == j.get("plan_id"):
+                        return i
+                if str(j.get("option", "")).isdigit():
+                    return int(j["option"])
+                return "recommended"  # Approve clicked without picking a radio option
+    except (ValueError, TypeError):
+        pass
+    low = text.lower()
+    if "cancel_plan" in low:
+        return "cancel"
+    for i, o in enumerate(opts, 1):
+        if o["id"].lower() in low:
+            return i
+    return None
 
 
 def pct(p) -> str:
@@ -221,7 +305,7 @@ def keyword_parse(text: str) -> dict:
 
 
 async def parse_intent(ctx: Context, text: str):
-    if time.time() < (ctx.storage.get("llm_off_until") or 0):
+    if time.time() < MEM["llm_off_until"]:
         return keyword_parse(text), "keyword-fallback (LLM paused)"
     try:
         raw = await asyncio.wait_for(asyncio.to_thread(_asi1_sync, text), timeout=LLM_TIMEOUT)
@@ -231,7 +315,7 @@ async def parse_intent(ctx: Context, text: str):
     except Exception as e:
         err = str(e)
         if any(k in err for k in ("insufficient_quota", "403", "401", "No module named")):
-            ctx.storage.set("llm_off_until", time.time() + LLM_COOLDOWN)
+            MEM["llm_off_until"] = time.time() + LLM_COOLDOWN
             ctx.logger.warning(f"LLM unavailable, pausing it for {LLM_COOLDOWN}s: {err[:120]}")
         else:
             ctx.logger.warning(f"ASI:One parse failed, using keyword fallback: {err[:120]}")
@@ -253,7 +337,7 @@ async def start_run(ctx, user, scenario, item, prefs, kind, intro=""):
     req = {"user": user, "scenario": scenario, "item": item, "prefs": prefs, "kind": kind,
            "intro": intro, "notes": [], "stage": "inventory", "t": time.time(), "source": ""}
     ctx.storage.set("open_rids", _open(ctx) + [rid])
-    cache = ctx.storage.get("inv_cache")
+    cache = MEM["inv_cache"]
     if cache and cache.get("items") and time.time() - cache["t"] < CACHE_MAX_AGE:
         req["source"] = f"Stock synced from Inventory Agent {int(time.time() - cache['t'])}s ago."
         ctx.logger.info(f"[{rid}] using synced inventory | kind={kind} scenario={scenario} item={item}")
@@ -309,6 +393,7 @@ def format_result(req, items, meta):
             L.append("Why: " + f["recommendation_reason"])
         L += ["", "Reply **YES** to approve the recommended plan, **option N** to pick another, or **NO** to cancel."]
         pending = {"item": f["item"], "item_id": f.get("item_id"), "options": opts, "recommended": rec,
+                   "risk_now": f.get("stockout_prob"),
                    "scenario": sc.get("name", "the current disruption")}
     elif f and f.get("note"):
         L.append(f["note"])
@@ -394,13 +479,12 @@ async def handle_chat(ctx: Context, sender: str, msg: ChatMessage):
         ctx.logger.info("No text in message (session/metadata content); nothing to do")
         return
     mid = str(msg.msg_id)
-    seen = ctx.storage.get("seen_msgs") or []
-    last = ctx.storage.get(f"lasttext_{sender}") or {}
-    if mid in seen or (last.get("text") == text and time.time() - last.get("t", 0) < 20):
+    last = MEM["lasttext"].get(sender) or {}
+    if mid in MEM["seen"] or (last.get("text") == text and time.time() - last.get("t", 0) < 20):
         ctx.logger.info("Duplicate message ignored")
         return
-    ctx.storage.set("seen_msgs", (seen + [mid])[-100:])
-    ctx.storage.set(f"lasttext_{sender}", {"text": text, "t": time.time()})
+    MEM["seen"] = (MEM["seen"] + [mid])[-200:]
+    MEM["lasttext"][sender] = {"text": text, "t": time.time()}
     ctx.logger.info(f"User {sender[:16]}...: {text[:300]}")
     t = text.lower()
 
@@ -413,6 +497,13 @@ async def handle_chat(ctx: Context, sender: str, msg: ChatMessage):
     # 1. pending approval (deterministic, no LLM needed)
     pending = ctx.storage.get(f"pending_{sender}")
     if pending:
+        sel = parse_selection(text, pending)
+        if sel == "cancel":
+            t = "no"
+        elif sel == "recommended":
+            t = "yes"
+        elif sel:
+            t = f"option {sel}"
         opt = re.search(r"option\s*#?\s*(\d+)", t)
         if opt or re.match(r"\s*(yes|y|approve|approved|confirm|go ahead|ok|okay)\b", t):
             opts = pending["options"]
@@ -458,7 +549,8 @@ async def handle_chat(ctx: Context, sender: str, msg: ChatMessage):
         if saved.get("budget_cap_inr"):
             bits.append("budget cap " + inr(saved["budget_cap_inr"]))
         intro = "Saved your preferences: " + "; ".join(bits) + ".\n"
-    prefs = get_prefs(ctx, sender)
+        old = saved
+    prefs = {**DEFAULT_PREFS, **old}
 
     if kind == "set_preference":
         last = ctx.storage.get(f"last_{sender}")
@@ -487,7 +579,7 @@ async def on_ack(ctx: Context, sender: str, msg: ChatAcknowledgement):
 @agent.on_message(model=StockSnapshot)
 async def on_snapshot(ctx: Context, sender: str, msg: StockSnapshot):
     if msg.items:
-        ctx.storage.set("inv_cache", {"items": msg.items, "t": time.time()})
+        MEM["inv_cache"] = {"items": msg.items, "t": time.time()}
     if msg.request_id == "sync":
         ctx.logger.info(f"Inventory synced: {len(msg.items)} items")
         return
@@ -524,7 +616,7 @@ async def on_result(ctx: Context, sender: str, msg: SimResult):
     if req["kind"] != "brief":
         ctx.storage.set(f"last_{user}", {"scenario": req.get("scenario"), "item": req.get("item")})
     ctx.logger.info(f"[{rid}] <- Simulation, replying to user")
-    await reply(ctx, user, text)
+    await reply(ctx, user, text, build_card(pending))
 
 
 @agent.on_interval(period=5.0)
