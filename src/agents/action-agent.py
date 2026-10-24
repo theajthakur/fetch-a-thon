@@ -475,6 +475,108 @@ def format_result(req, items, meta):
     return "\n".join(lines), pending
 
 
+PAYMENT_HANDLE = os.getenv("PAYMENT_HANDLE", "@meditwin-payment")
+# Optional in-chat payment step. Leave PAYMENT_ADDR unset to keep the original flow exactly as it was.
+PAYMENT_ADDR = os.getenv("PAYMENT_ADDR", "").strip()
+PAYMENT_TTL = 30 * 60
+ADVANCE_PCT = 10
+
+
+def payment_offer(o, po_no):
+    """Supplier name and supplier-only cost of an approved plan (transfers are not paid to the supplier)."""
+    sid = o.get("supplier_id")
+    qty = o.get("supplier_order_qty", o.get("order_qty", 0))
+    if not (sid and qty):
+        return None
+    cost = o.get("supplier_cost_inr", o["total_cost_inr"] - sum(t.get("cost_inr", TRANSFER_COST_INR)
+                                                                for t in (o.get("transfers") or [])))
+    return {"po": po_no, "supplier": SUPPLIERS.get(sid, sid), "total": cost, "t": time.time()}
+
+
+def payment_offer_card(offer) -> dict:
+    payload = {"title": "Pay the supplier advance?",
+               "summary_rows": [{"label": "PO", "value": offer["po"]},
+                                {"label": "Supplier", "value": offer["supplier"]},
+                                {"label": f"Advance ({ADVANCE_PCT}%)", "value": inr(offer["total"] * ADVANCE_PCT / 100)},
+                                {"label": "PO total", "value": inr(offer["total"])}],
+               "approve_cta": {"label": f"Pay {ADVANCE_PCT}% advance",
+                               "selection": {"action": "pay_advance", "po": offer["po"]}, "primary": True},
+               "reject_cta": {"label": "Skip for now", "selection": {"action": "skip_payment", "po": offer["po"]}}}
+    return {"card_protocol_version": "1", "requires_card_interaction": "true", "card_kind": "review",
+            "card_payload": json.dumps(payload), "preferred_drawer_width_px": "480"}
+
+
+def payment_action(text: str):
+    """Card clicks and typed commands for the payment step -> (action, raw_text_to_forward)."""
+    try:
+        j = json.loads(text)
+        if isinstance(j, dict) and j.get("action") in ("pay_advance", "skip_payment", "verify_payment", "cancel_payment"):
+            return j["action"], text
+    except (ValueError, TypeError):
+        pass
+    low = text.lower()
+    for act in ("pay_advance", "skip_payment", "verify_payment", "cancel_payment"):
+        if act in low:
+            return act, text
+    if re.search(r"\bpay\b.*\badvance\b|^\s*pay( now)?\s*$", low):
+        return "pay_advance", text
+    if re.search(r"^\s*(verify|i'?ve paid|i paid|paid|done)\b", low):
+        return "verify_payment", "verify"
+    if re.search(r"\bcancel payment\b", low):
+        return "cancel_payment", "cancel payment"
+    return None, None
+
+
+async def relay_from_payment(ctx: Context, msg: ChatMessage):
+    """Forward the Payment Agent's reply (text, Stripe link, card) to the user who asked to pay."""
+    relay = ctx.storage.get("pay_relay") or {}
+    if not relay.get("user") or time.time() - relay.get("t", 0) > PAYMENT_TTL:
+        ctx.logger.info("Payment Agent reply with no active payment relay; ignored")
+        return
+    content, first, has_card = [], True, False
+    for c in msg.content:
+        if isinstance(c, TextContent) or getattr(c, "type", "") == "text":
+            txt = getattr(c, "text", "") or ""
+            content.append(TextContent(type="text", text=("**Payment Agent:** " + txt) if first else txt))
+            first = False
+        elif MetadataContent is not None and getattr(c, "type", "") == "metadata":
+            content.append(MetadataContent(type="metadata", metadata=c.metadata))
+            has_card = True
+    if not content:
+        return
+    if not has_card and EndSessionContent is not None:
+        content.append(EndSessionContent(type="end-session"))
+    ctx.logger.info(f"Relaying Payment Agent reply to {relay['user'][:12]} (card={'yes' if has_card else 'no'})")
+    await ctx.send(relay["user"], ChatMessage(timestamp=datetime.now(timezone.utc), msg_id=uuid4(), content=content))
+
+
+async def handle_payment(ctx: Context, sender: str, text: str) -> bool:
+    """In-chat payment step through the separate Payment Agent. Returns True when the message was handled."""
+    if not PAYMENT_ADDR:
+        return False
+    action, raw = payment_action(text)
+    relay = ctx.storage.get("pay_relay") or {}
+    relay_active = relay.get("user") and time.time() - relay.get("t", 0) < PAYMENT_TTL
+    if action in ("verify_payment", "cancel_payment") and not relay_active and raw in ("verify", "cancel payment"):
+        return False  # a plain word with no payment in progress: let the normal flow handle it
+    if not action:
+        return False
+    if action == "skip_payment":
+        await reply(ctx, sender, f"OK, no payment made. Say `pay advance` any time in the next 30 minutes to pay it.")
+        return True
+    if action == "pay_advance":
+        offer = ctx.storage.get("pay_offer") or {}
+        if not offer or time.time() - offer.get("t", 0) > PAYMENT_TTL:
+            await reply(ctx, sender, "There is no recently approved PO to pay. Approve a plan first.")
+            return True
+        raw = (f"pay {ADVANCE_PCT}% advance for {offer['po']}, {offer['supplier']}, total {inr(offer['total'])}")
+    ctx.storage.set("pay_relay", {"user": sender, "t": time.time()})
+    ctx.logger.info(f"Forwarding to Payment Agent: {raw[:120]}")
+    await ctx.send(PAYMENT_ADDR, ChatMessage(timestamp=datetime.now(timezone.utc), msg_id=uuid4(),
+                                             content=[TextContent(type="text", text=raw)]))
+    return True
+
+
 def make_po(p, o):
     now = datetime.now(IST)
     po_no = f"PO-{now:%Y%m%d}-{uuid4().hex[:4].upper()}"
@@ -483,6 +585,7 @@ def make_po(p, o):
     # Engine 1.1 sends supplier and transfer quantities/costs separately; never derive them from the total.
     order_qty = o.get("supplier_order_qty", o.get("order_qty", 0))
     lines = [f"**Approved: {o['label']}**", ""]
+    pay_hint = None
 
     if sid and order_qty:
         sup = SUPPLIERS.get(sid, sid)
@@ -490,6 +593,8 @@ def make_po(p, o):
                               o["total_cost_inr"] - sum(t.get("cost_inr", TRANSFER_COST_INR) for t in transfers))
         unit = o.get("supplier_unit_cost_inr") or supplier_cost / order_qty
         exp = o.get("type") == "expedited_order"
+        # Hand-off to the separate Payment Agent: text only, so this flow never depends on payments working.
+        pay_hint = f"{PAYMENT_HANDLE} pay 10% advance for {po_no}, {sup}, total {inr(supplier_cost)}"
         lines += [
             "**Purchase order**", "```",
             f"PO number : {po_no}", f"Date      : {now:%d %b %Y, %H:%M} IST",
@@ -520,8 +625,12 @@ def make_po(p, o):
     lines += [
         "",
         f"Total plan cost: {inr(o['total_cost_inr'])}. Simulated stockout after this plan: {risk_label(o)} (model estimate, not a guarantee).",
-        FOOTER,
     ]
+    if pay_hint and PAYMENT_ADDR:
+        lines += ["", "**Next:** pay the supplier advance with the card below (Stripe test mode)."]
+    elif pay_hint:
+        lines += ["", f"**Next: pay the supplier advance** (Stripe test mode) by sending:", f"`{pay_hint}`"]
+    lines += [FOOTER]
     return po_no, "\n".join(lines)
 
 
@@ -575,10 +684,14 @@ async def handle_chat(ctx: Context, sender: str, msg: ChatMessage):
     ).strip()
     if not text:
         return
+    if PAYMENT_ADDR and sender == PAYMENT_ADDR:
+        await relay_from_payment(ctx, msg)
+        return
 
     mid = str(msg.msg_id)
     last = MEM["lasttext"].get(sender) or {}
-    if mid in MEM["seen"] or (last.get("text") == text and time.time() - last.get("t", 0) < 20):
+    is_payment_step = bool(PAYMENT_ADDR and payment_action(strip_mentions(text) or text)[0])
+    if mid in MEM["seen"] or (not is_payment_step and last.get("text") == text and time.time() - last.get("t", 0) < 20):
         return
 
     MEM["seen"] = (MEM["seen"] + [mid])[-200:]
@@ -586,6 +699,8 @@ async def handle_chat(ctx: Context, sender: str, msg: ChatMessage):
     ctx.logger.info(f"Incoming message from {sender[:12]}: {text[:150]}")
     text = strip_mentions(text) or text
     t = text.lower()
+    if await handle_payment(ctx, sender, text):
+        return
 
     if re.search(r"\breset\b.*\b(preferences|prefs|settings)\b", t):
         for k in ("prefs", "pending", "last"):
@@ -634,7 +749,10 @@ async def handle_chat(ctx: Context, sender: str, msg: ChatMessage):
                 hist + [{"po": po_no, "item": pending["item"], "plan": choice["label"], "cost": choice["total_cost_inr"]}],
             )
             clear_pending(ctx, sender, owner)
-            await reply(ctx, sender, doc)
+            offer = payment_offer(choice, po_no) if PAYMENT_ADDR else None
+            if offer:
+                ctx.storage.set("pay_offer", offer)
+            await reply(ctx, sender, doc, payment_offer_card(offer) if offer else None)
             return
 
         if re.match(r"\s*(no|cancel|reject|stop)\b", t):

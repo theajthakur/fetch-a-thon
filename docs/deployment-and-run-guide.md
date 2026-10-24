@@ -128,8 +128,15 @@ python -c "from src.agents import action_agent; action_agent.agent.run()"
      - Paste code from [`src/agents/action-agent.py`](../src/agents/action-agent.py).
      - Default addresses for `INVENTORY_ADDR` and `SIMULATION_ADDR` are already pre-configured.
      - Start agent.
-3. **Register Action Agent on ASI:One**:
-   - In the Action Agent's profile on Agentverse, ensure the **Chat Protocol** is published and the agent handle is discoverable.
+3. **Configure Agentverse Profiles & Hackpack Badges**:
+   - In each agent's **README / Description** tab on Agentverse, paste its short overview and the required hackpack discovery badges:
+     ```markdown
+     ![tag:innovationlab](https://img.shields.io/badge/innovationlab-3D8BD3)
+     ![tag:hackathon](https://img.shields.io/badge/hackathon-5F43F1)
+     ```
+   - Ready-to-copy markdown descriptions for all three agents are provided in the main [README.md](../README.md#agentverse-profile-descriptions--discovery-badges).
+4. **Register Action Agent on ASI:One**:
+   - In the Action Agent's profile on Agentverse, ensure the **Chat Protocol** is published and the agent handle (`@supply-chain-action`) is discoverable.
    - Open [ASI:One](https://asi1.ai/) and search for `@supply-chain-action` or query the agent address directly.
 
 ---

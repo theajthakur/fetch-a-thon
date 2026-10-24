@@ -55,6 +55,73 @@ Every number is produced by deterministic, seeded code, so you can repeat the re
 
 All three are **hosted on Agentverse**. Only the Action Agent needs to be discovered in ASI:One; it reaches the other two by address.
 
+### Agentverse profile descriptions & discovery badges
+
+As required by the Fetch-A-Thon hackpack and to aid discovery on Agentverse, each hosted agent includes a dedicated description and two discovery badges (`innovationlab` and `hackathon`) in its **README / Description** tab on Agentverse:
+
+![tag:innovationlab](https://img.shields.io/badge/innovationlab-3D8BD3)
+![tag:hackathon](https://img.shields.io/badge/hackathon-5F43F1)
+
+<details open>
+<summary><b>1. Action Agent (<code>Supply Chain Action Agent</code> / <code>@supply-chain-action</code>)</b></summary>
+
+```markdown
+# Supply Chain Action Agent (@supply-chain-action)
+
+![tag:innovationlab](https://img.shields.io/badge/innovationlab-3D8BD3)
+![tag:hackathon](https://img.shields.io/badge/hackathon-5F43F1)
+
+**Conversational Entry Point & Multi-Agent Orchestrator for Hospital Supply Chain Resilience.**
+
+MediTwin's Action Agent acts as your personal AI procurement assistant in ASI:One. It translates natural-language disruptions (e.g., supplier delays, demand spikes) into structured what-if simulations, coordinates state from the Inventory Agent, requests Monte Carlo analytics from the Simulation Agent, and renders interactive decision cards. Upon user approval, it drafts purchase orders, generates supplier emails, and orchestrates inter-hospital inventory transfers.
+
+- **Role:** Intent extraction, multi-agent orchestration, interactive decision cards, order generation
+- **Protocols:** Agent Chat Protocol, ASI:One Interactive Cards, typed uAgents messaging
+- **Challenge:** Fetch-A-Thon 3.0 (GCET Edition) — *ASI:One Agent Challenge: From Intent to Action*
+```
+
+</details>
+
+<details open>
+<summary><b>2. Inventory Agent (<code>meditwin-inventory</code>)</b></summary>
+
+```markdown
+# Inventory Digital Twin Agent (meditwin-inventory)
+
+![tag:innovationlab](https://img.shields.io/badge/innovationlab-3D8BD3)
+![tag:hackathon](https://img.shields.io/badge/hackathon-5F43F1)
+
+**Real-Time Digital Twin State Provider for Hospital Pharmacy & Medical Supplies.**
+
+Maintains live inventory state across 12 critical medical supplies, consumption rates, baseline supplier lead times, and available emergency reserves across sister hospitals. Serves typed `StockSnapshot` messages and synchronizes state every 60 seconds with the Action Agent to enable sub-second disruption modeling without external ERP latency.
+
+- **Role:** State provider, twin synchronization, stock level monitoring
+- **Protocols:** Typed uAgents messaging (`StockRequest` / `StockSnapshot`)
+- **Challenge:** Fetch-A-Thon 3.0 (GCET Edition) — *ASI:One Agent Challenge: From Intent to Action*
+```
+
+</details>
+
+<details open>
+<summary><b>3. Simulation Agent (<code>meditwin-simulation</code>)</b></summary>
+
+```markdown
+# Simulation Engine Agent (meditwin-simulation)
+
+![tag:innovationlab](https://img.shields.io/badge/innovationlab-3D8BD3)
+![tag:hackathon](https://img.shields.io/badge/hackathon-5F43F1)
+
+**Deterministic Monte Carlo What-If Simulation Engine for Medical Stockout Prevention.**
+
+Runs 1,000-iteration discrete-event simulations over a 21-day horizon using common random numbers to model supply-chain cascade failures, lead-time delays, and demand surges. Evaluates and ranks mitigation strategies (emergency purchase orders, expedited shipping, and inter-hospital bridge transfers) with Clopper-Pearson / Wilson 95% statistical confidence bounds.
+
+- **Role:** What-if simulation, cascade failure analysis, mitigation plan ranking
+- **Protocols:** Typed uAgents messaging (`SimRequest` / `SimResult`)
+- **Challenge:** Fetch-A-Thon 3.0 (GCET Edition) — *ASI:One Agent Challenge: From Intent to Action*
+```
+
+</details>
+
 ---
 
 ## 1. The problem
@@ -181,7 +248,7 @@ Agent:  Saved your preferences ... Re-running your last scenario:
 | Usable from ASI:One, full workflow in chat, no custom frontend | Done | Shared chat link above |
 | Meaningful tool execution / multi-agent orchestration | Done | Inventory -> Simulation -> PO generation |
 | Public repo with run instructions | Done | Section 8, [deployment guide](docs/deployment-and-run-guide.md) |
-| `innovationlab` and `hackathon` badges | Done | Top of this README |
+| `innovationlab` and `hackathon` badges | Done | Top of this README & in all 3 Agentverse profile README/description tabs |
 
 | Bonus | Status |
 |---|---|
