@@ -209,6 +209,8 @@ def parse_selection(text, pending):
     for i, o in enumerate(opts, 1):
         if o["id"].lower() in low:
             return i
+    if "approve_plan" in low:
+        return "recommended"
     return None
 
 
@@ -544,6 +546,28 @@ async def on_chat(ctx: Context, sender: str, msg: ChatMessage):
         await reply(ctx, sender, f"MediTwin encountered an internal error ({type(e).__name__}). Please retry.")
 
 
+PENDING_TTL = 900  # seconds an approval stays valid for a different ASI:One session address
+
+
+def save_pending(ctx: Context, user: str, pending):
+    """Pending approvals are stored per sender and as 'latest', because ASI:One may deliver a card click
+    or a follow-up YES from a different session address than the one that received the options."""
+    ctx.storage.set(f"pending_{user}", pending)
+    ctx.storage.set("pending_latest", {"user": user, "pending": pending, "t": time.time()} if pending else None)
+
+
+def clear_pending(ctx: Context, *users):
+    for u in users:
+        if u:
+            ctx.storage.set(f"pending_{u}", None)
+    ctx.storage.set("pending_latest", None)
+
+
+def strip_mentions(text: str) -> str:
+    """'@supply-chain-action YES' -> 'YES' (ASI:One keeps the @handle in the text)."""
+    return re.sub(r"^\s*(?:@\[?[\w.\-]+\]?[:,]?\s*)+", "", text).strip()
+
+
 async def handle_chat(ctx: Context, sender: str, msg: ChatMessage):
     text = " ".join(
         getattr(c, "text", "") or "" for c in msg.content
@@ -560,6 +584,7 @@ async def handle_chat(ctx: Context, sender: str, msg: ChatMessage):
     MEM["seen"] = (MEM["seen"] + [mid])[-200:]
     MEM["lasttext"][sender] = {"text": text, "t": time.time()}
     ctx.logger.info(f"Incoming message from {sender[:12]}: {text[:150]}")
+    text = strip_mentions(text) or text
     t = text.lower()
 
     if re.search(r"\breset\b.*\b(preferences|prefs|settings)\b", t):
@@ -568,7 +593,19 @@ async def handle_chat(ctx: Context, sender: str, msg: ChatMessage):
         await reply(ctx, sender, "Preferences reset to defaults (no preferred supplier, budget cap Rs 600,000).")
         return
 
-    pending = ctx.storage.get(f"pending_{sender}")
+    pending, owner = ctx.storage.get(f"pending_{sender}"), sender
+    if not pending:
+        latest = ctx.storage.get("pending_latest") or {}
+        if latest.get("pending") and time.time() - latest.get("t", 0) < PENDING_TTL:
+            cand = latest["pending"]
+            looks_like_decision = (parse_selection(text, cand) is not None or re.match(
+                r"\s*(yes|y|approve|approved|confirm|go ahead|ok|okay|no|cancel|reject|stop|option\s*#?\s*\d+)\b", t))
+            if looks_like_decision:
+                pending, owner = cand, latest.get("user")
+                ctx.logger.info(f"Using latest pending plan from session {str(owner)[:12]}")
+    if not pending and parse_selection(text, {"options": []}) is not None:
+        await reply(ctx, sender, "That plan is no longer pending. Run the what-if again to get fresh options.")
+        return
     if pending:
         sel = parse_selection(text, pending)
         if sel == "cancel":
@@ -596,12 +633,12 @@ async def handle_chat(ctx: Context, sender: str, msg: ChatMessage):
                 f"orders_{sender}",
                 hist + [{"po": po_no, "item": pending["item"], "plan": choice["label"], "cost": choice["total_cost_inr"]}],
             )
-            ctx.storage.set(f"pending_{sender}", None)
+            clear_pending(ctx, sender, owner)
             await reply(ctx, sender, doc)
             return
 
         if re.match(r"\s*(no|cancel|reject|stop)\b", t):
-            ctx.storage.set(f"pending_{sender}", None)
+            clear_pending(ctx, sender, owner)
             await reply(ctx, sender, "Cancelled. No order was placed.")
             return
 
@@ -696,7 +733,7 @@ async def on_result(ctx: Context, sender: str, msg: SimResult):
         await reply(ctx, user, "Simulation completed but result formatting failed.")
         return
 
-    ctx.storage.set(f"pending_{user}", pending)
+    save_pending(ctx, user, pending)
     if req["kind"] != "brief":
         ctx.storage.set(f"last_{user}", {"scenario": req.get("scenario"), "item": req.get("item")})
 
