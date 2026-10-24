@@ -1,11 +1,4 @@
-import asyncio
-try:
-    asyncio.get_event_loop()
-except RuntimeError:
-    asyncio.set_event_loop(asyncio.new_event_loop())
-
 import json
-import os
 from typing import List
 from uagents import Agent, Context, Model
 
@@ -776,42 +769,22 @@ class SimResult(Model):
 
 agent = Agent()
 
-def load_base_data():
-    """Load base hospital digital twin data from file if available, falling back to embedded DATA."""
-    candidates = [
-        os.path.join(os.path.dirname(__file__), "..", "dataset", "data.json"),
-        os.path.join(os.path.dirname(__file__), "dataset", "data.json"),
-        os.path.join(os.path.dirname(__file__), "..", "data.json"),
-        "src/dataset/data.json",
-        "dataset/data.json",
-        "data.json",
-    ]
-    for path in candidates:
-        if os.path.isfile(path):
-            try:
-                with open(path, "r", encoding="utf-8") as fh:
-                    return json.load(fh)
-            except Exception:
-                pass
-    return DATA
-
 def pick_data(items):
-    """Use Inventory's items if they pass validation, otherwise fall back to base data."""
-    base = load_base_data()
+    """Use Inventory's items if they pass validation, otherwise fall back to embedded data."""
     if items:
-        cand = dict(base)
+        cand = dict(DATA)
         cand["items"] = items
         if not validate_data(cand):
             return cand, "inventory"
-    return base, "embedded"
+    return DATA, "embedded"
 
 @agent.on_event("startup")
 async def on_start(ctx: Context):
-    ctx.logger.info(f"MediTwin Simulation Agent active. Address: {ctx.agent.address}")
+    ctx.logger.info(f"Simulation Agent up. Address: {ctx.agent.address}")
 
 @agent.on_message(model=SimRequest)
 async def on_sim_request(ctx: Context, sender: str, msg: SimRequest):
-    ctx.logger.info(f"SimRequest {msg.request_id} received with {len(msg.items)} items")
+    ctx.logger.info(f"SimRequest {msg.request_id} with {len(msg.items)} items")
     try:
         scenario = dict(msg.scenario or {})
         item = scenario.pop("item", None)               # optional focus item
@@ -821,7 +794,7 @@ async def on_sim_request(ctx: Context, sender: str, msg: SimRequest):
         data, src = pick_data(msg.items)
         res = run_simulation(data, req)
         if src == "inventory" and (not res.get("ok") or not res.get("items")):
-            data, src = load_base_data(), "embedded (inventory data unusable)"
+            data, src = DATA, "embedded (inventory data unusable)"
             res = run_simulation(data, req)
 
         if not res.get("ok"):
@@ -830,23 +803,12 @@ async def on_sim_request(ctx: Context, sender: str, msg: SimRequest):
             focus = res.get("focus")
             if focus and focus.get("options"):
                 focus["options"] = focus["options"][:6]
-            results = list(res["items"]) + [{
-                "meta": {
-                    "scenario": res["scenario"],
-                    "summary": res["summary"],
-                    "focus": focus,
-                    "warnings": res.get("warnings", []),
-                    "data_source": src,
-                    "hospital": data.get("hospital", {}),
-                    "assumptions": res.get("assumptions", {})
-                }
-            }]
+            results = list(res["items"]) + [{"meta": {
+                "scenario": res["scenario"], "summary": res["summary"], "focus": focus,
+                "warnings": res.get("warnings", []), "data_source": src}}]
     except Exception as e:
         ctx.logger.exception("Simulation failed")
         results = [{"error": f"Simulation agent error: {e}"}]
 
     await ctx.send(sender, SimResult(request_id=msg.request_id, results=results))
-    ctx.logger.info(f"Replied with SimResult {msg.request_id} ({len(results)} items + meta)")
-
-if __name__ == "__main__":
-    agent.run()
+    ctx.logger.info(f"Replied with SimResult {msg.request_id}")

@@ -335,17 +335,6 @@ def format_text(res, top_n=5):
 
 if __name__ == "__main__":
     import json
-    import os
-    candidates = [
-        os.path.join(os.path.dirname(__file__), "dataset", "data.json"),
-        os.path.join(os.path.dirname(__file__), "..", "data.json"),
-        "dataset/data.json",
-        "src/dataset/data.json",
-        "data.json",
-    ]
-    data_path = next((p for p in candidates if os.path.isfile(p)), None)
-    if not data_path:
-        raise FileNotFoundError("Could not locate data.json in expected locations")
-    with open(data_path, "r", encoding="utf-8") as fh:
+    with open("dataset/data.json") as fh:
         D = json.load(fh)
     print(format_text(run_simulation(D, {"scenario": "SC1", "item": "insulin"})))
