@@ -16,6 +16,10 @@ from uagents import Agent, Context, Model, Protocol
 from uagents_core.contrib.protocols.chat import (
     ChatAcknowledgement, ChatMessage, TextContent, chat_protocol_spec,
 )
+try:  # ASI:One closes the turn and renders the answer when the reply ends the session
+    from uagents_core.contrib.protocols.chat import EndSessionContent
+except ImportError:
+    EndSessionContent = None
 
 INVENTORY_ADDR = "PASTE_INVENTORY_AGENT_ADDRESS"
 SIMULATION_ADDR = "PASTE_SIMULATION_AGENT_ADDRESS"
@@ -93,11 +97,14 @@ chat_proto = Protocol(spec=chat_protocol_spec)
 
 # ---------------- helpers ----------------
 def make_reply(text: str) -> ChatMessage:
-    return ChatMessage(timestamp=datetime.now(timezone.utc), msg_id=uuid4(),
-                       content=[TextContent(type="text", text=text)])
+    content = [TextContent(type="text", text=text)]
+    if EndSessionContent is not None:
+        content.append(EndSessionContent(type="end-session"))
+    return ChatMessage(timestamp=datetime.now(timezone.utc), msg_id=uuid4(), content=content)
 
 
 async def reply(ctx: Context, to: str, text: str):
+    ctx.logger.info(f"Reply to {to[:16]}... ({len(text)} chars): {text[:120]!r}")
     await ctx.send(to, make_reply(text))
 
 
