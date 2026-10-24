@@ -22,7 +22,7 @@ Built for **Fetch-A-Thon 3.0 (GCET Edition)**, challenge: *ASI:One Agent Challen
 1. Open [ASI:One](https://asi1.ai/) and send:
    `@supply-chain-action What if SUP01 is delayed 10 days and insulin demand rises 30%?`
 2. Within ~15 seconds the Action Agent calls the Simulation Agent (using stock synced from the Inventory Agent) and replies: **insulin critical, 100% stockout probability**, with ranked fixes.
-3. Reply `YES` (or click **Approve & draft PO** on the card). You receive a **purchase order for 754 vials from Himalaya MedSupply, a supplier email, and transfer requests to two sister hospitals**, total Rs 364,920, residual risk 0%.
+3. Reply `YES` (or click **Approve & draft PO** on the card). You receive a **purchase order for 754 vials from Himalaya MedSupply, a supplier email, and transfer requests to two sister hospitals**, total Rs 364,920, with **0 stockouts in 1,000 simulated runs** (one-sided 95% upper bound below 0.3%).
 
 Every number is produced by deterministic, seeded code, so you can repeat the request and get the same result.
 
@@ -36,6 +36,12 @@ Every number is produced by deterministic, seeded code, so you can repeat the re
 | Inventory Agent | [Agentverse profile](https://agentverse.ai/agents/details/agent1qw5sdhru2eml9w08k65waf0rnqpxz6xazqvcmnen57t4p75gvgegjke70eg/profile) |
 | Simulation Agent | [Agentverse profile](https://agentverse.ai/agents/details/agent1q229ftx9ae3vlwjy87hw7cnvaa6dm8g99q5lh0ky5e824kz69xcage63jj3/profile) |
 | Full documentation | [`docs/`](docs/README.md) |
+
+## Screenshots
+
+| Risk brief | What-if + fix options | Approved PO + transfers |
+|---|---|---|
+| ![Risk brief](assets/screenshots/1-brief.png) | ![What-if result](assets/screenshots/2-whatif.png) | ![Purchase order](assets/screenshots/3-po.png) |
 
 ## Agent registry
 
@@ -106,20 +112,23 @@ sequenceDiagram
 
 ## 4. The simulation model
 
-Implemented in [`src/sim.py`](src/sim.py), pure Python standard library.
+Implemented inside [`src/agents/simulation-agent.py`](src/agents/simulation-agent.py) (engine v1.1), pure Python standard library. This file is the single source of the engine; the tests import it directly.
 
 | Concept | How it is modelled |
 |---|---|
 | Scenario | Preset (`SC1`..`SC3`) or custom: delayed supplier and days, per-item or global demand multiplier, cold-chain spoilage |
 | Demand | Daily demand ~ Normal(mean x multiplier, std x multiplier), floored at 0 |
 | Supplier reliability | With probability `1 - reliability`, a delivery arrives 3 days late |
-| Horizon | 21-day window, 1,000 runs per evaluation, fixed seed so options are compared on identical random draws |
+| Horizon | 21-day window, 1,000 runs, fixed seed |
+| Common random numbers | One demand path and one supplier-delay draw per run, generated once per item and shared by every plan, so plan comparisons are not driven by sampling noise |
+| Uncertainty | Stockout probability is reported with its run count and a one-sided 95% upper bound (Clopper-Pearson at zero events, Wilson otherwise); zero simulated stockouts is never shown as "0% risk" |
+| Plan accounting | Every plan carries separate supplier quantity, unit cost, supplier cost, per-transfer quantity and cost, and total; the same fields drive the simulation, the recommendation and the purchase order |
 | Order sizing | `demand x 21 x 1.15 safety factor - available stock` |
 | Fix options | Supplier order, expedited order (lead x0.5, cost x1.2), transfer from a sister hospital, bridge (transfer + order) |
 | Risk score | `stockout_probability x criticality / 5 x 100` (critical >= 60, high >= 30, medium >= 10) |
 | Recommendation | Cheapest within-budget plan with stockout probability <= 5%, preferring the user's preferred suppliers |
 
-All assumptions are constants at the top of `sim.py` and are returned in every result. Full derivation: [docs/simulation-model.md](docs/simulation-model.md).
+All assumptions are constants at the top of the engine section and are returned in every result, including a `not_modelled` list. Full derivation: [docs/simulation-model.md](docs/simulation-model.md).
 
 ### Verified result: hero scenario `SC1`
 Supplier `SUP01` delayed 10 days and insulin demand +30%:
@@ -130,11 +139,12 @@ Insulin Glargine: 11.5 days of cover, delayed supplier lead 17 days
 
 Recommended: Bridge = transfer 150 + 80 vials from sister hospitals
              + order 754 vials from Himalaya MedSupply (6 days)
-  -> stockout probability 0%, Rs 364,920
+  -> 0/1,000 simulated stockouts (95% upper bound < 0.3%)
+  -> Rs 364,920 = Rs 361,920 supplier (754 x Rs 480) + Rs 3,000 transfers
 Alternatives: order only from Himalaya (Rs 472,320), from LifeLine (Rs 511,680)
 ```
 
-**Cascade detection:** the same `SUP01` delay also raises Heparin to 8% stockout probability, because one supplier serves several items. A per-item spreadsheet would miss this.
+**Cascade detection:** the same `SUP01` delay also raises Heparin to about 10% simulated stockout probability, because one supplier serves several items. A per-item spreadsheet would miss this.
 
 ## 5. Example conversation (actual behaviour)
 
@@ -146,7 +156,7 @@ Agent:  Risk overview: 0 critical, 0 high, 0 medium, 12 low.
 User:   What if SUP01 is delayed 10 days and insulin demand rises 30%?
 Agent:  Risk overview: 1 critical ... Insulin: 11.5 days of cover, stockout risk 100%.
         1. Bridge: transfer from sister hospitals + order from Himalaya MedSupply (6d)
-           | risk 0% | Rs 364,920  <- recommended
+           | stockout 0/1,000 runs (95% bound <0.3%) | Rs 364,920  <- recommended
         2. ...   Reply YES, option N, or NO.   [approval card]
 
 User:   YES
@@ -157,7 +167,7 @@ Agent:  Purchase order PO-20261024-XXXX: 754 vials from Himalaya MedSupply ...
 
 User:   From now on prefer LifeLine Biologics.
 Agent:  Saved your preferences ... Re-running your last scenario:
-        recommended bridge via LifeLine Biologics (4d), Rs 395,080, risk 0%.
+        recommended bridge via LifeLine Biologics (4d), Rs 395,080, 0/1,000 simulated stockouts.
 ```
 
 ## 6. Challenge requirements
@@ -198,45 +208,41 @@ Agent:  Saved your preferences ... Re-running your last scenario:
 ```text
 .
 ├── README.md
-├── requirements.txt
-├── src/
-│   ├── sim.py                     # Monte Carlo simulation engine (stdlib only)
-│   ├── main.py                    # Entry runner
-│   ├── dataset/data.json          # Synthetic hospital twin
-│   └── agents/
-│       ├── action-agent.py        # ASI:One entry point, orchestrator, personal agent
-│       ├── inventory-agent.py     # Twin state
-│       └── simulation-agent.py    # What-if engine wrapping sim.py
+├── requirements.txt               # uagents, uagents-core, openai (agents only; tests need none)
+├── src/agents/
+│   ├── action-agent.py            # ASI:One entry point, orchestrator, personal agent
+│   ├── inventory-agent.py         # Digital-twin state
+│   └── simulation-agent.py        # Simulation engine v1.1 + embedded synthetic dataset
+├── tests/
+│   └── test_simulation_agent.py   # Imports the deployed agent file with uagents stubbed
 └── docs/                          # See section 7
 ```
 
-**Simulation engine (no dependencies)**
+**Run the tests (standard library only, about 1 second)**
 
-```python
-import json
-from sim import run_simulation, format_text   # run from src/
-
-data = json.load(open("dataset/data.json"))
-result = run_simulation(data, {"scenario": "SC1", "item": "insulin"})
-print(format_text(result))
+```bash
+python -m unittest discover -s tests -v
 ```
 
-Request format:
+The tests load `src/agents/simulation-agent.py` exactly as deployed, so the code that is tested is the code that runs on Agentverse.
+
+**Simulation request format** (sent by the Action Agent inside `SimRequest.scenario`)
 
 ```json
-{"scenario": "SC1", "item": "insulin",
- "preferences": {"preferred_suppliers": ["SUP02"], "budget_cap_inr": 600000},
- "runs": 1000, "seed": 42}
+{"id": "SC1", "item": "insulin",
+ "preferences": {"preferred_suppliers": ["SUP02"], "budget_cap_inr": 600000}}
 ```
 
-`scenario` can also be custom, e.g. `{"supplier_id": "SUP04", "delay_days": 6, "demand_multiplier": 1.5}`.
+A custom scenario replaces `id`, e.g. `{"supplier_id": "SUP04", "delay_days": 6, "demand_multiplier": 1.5, "item": "oxygen"}`.
 
-**Agents**
-1. Deploy `inventory-agent.py` and `simulation-agent.py` as hosted agents on Agentverse and note their addresses.
-2. Set `INVENTORY_ADDR` and `SIMULATION_ADDR` in `action-agent.py`, deploy it, and confirm the log shows `Inventory synced: 12 items`.
+**Deploy the agents**
+1. Create three hosted agents on Agentverse and paste `inventory-agent.py` and `simulation-agent.py` into two of them; note their addresses.
+2. Paste `action-agent.py` into the third. Set the `INVENTORY_ADDR` and `SIMULATION_ADDR` environment variables (or edit the defaults at the top of the file), start it, and confirm the log shows `Inventory refreshed: 12 items`.
 3. Chat with `@supply-chain-action` in ASI:One. `ASI1_API_KEY` and `ASI1_BASE_URL` are injected on hosted agents; without them the keyword parser is used.
 
-**Tests run:** `SC1`, `SC2`, `SC3`, custom oxygen scenario (SUP04 delayed 6 days + demand x1.5 gives 96% stockout probability, critical), baseline, unknown item names, out-of-range numbers (clamped), invalid data (clean error), Inventory Agent offline (snapshot fallback), duplicate messages, LLM quota exhausted (keyword fallback). A full 12-item scan takes about 0.2 s.
+**Automated tests (`tests/test_simulation_agent.py`, 17 tests):** hand-calculated edge cases (exact unmet units and first stockout day), statistical bounds, hero-scenario values (754 vials, Rs 364,920), cost-accounting identities for every plan, reproducibility, common-random-number monotonicity, clamping, unknown items and fuzzy matching.
+
+**Manual tests:** `SC1`, `SC2`, `SC3`, custom oxygen scenario (SUP04 delayed 6 days + demand x1.5 gives 96% stockout probability, critical), baseline, unknown item names, out-of-range numbers (clamped), invalid data (clean error), Inventory Agent offline (snapshot fallback), duplicate messages, LLM quota exhausted (keyword fallback). A full 12-item scan takes about 0.2 s.
 
 ## 9. Robustness
 
@@ -251,6 +257,8 @@ Request format:
 - **All data is synthetic.** Hospital, supplier and stock values are fictional.
 - **Logistics decision support, not clinical advice.** MediTwin never recommends substitutes or treatments.
 - Demand is modelled as normal and independent day to day; real demand has seasonality and correlation.
+- Not modelled: supplier capacity limits, minimum order quantities, expiry, competition for the same sister-hospital stock, and delay distributions (a late delivery is a flat +3 days).
+- Simulated probabilities are model estimates from 1,000 runs, not guarantees.
 - Expedite premium, transfer cost and the 3-day late penalty are stated assumptions.
 - Orders are drafted, not transmitted; a human approves every action.
 

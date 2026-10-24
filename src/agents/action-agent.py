@@ -150,7 +150,7 @@ def build_card_payload(pending):
             "value": o["id"],
             "label": ("Recommended: " if o["id"] == rec else "") + o["label"],
             "secondary_text": (
-                f"Risk {pct(o['stockout_prob'])} | {inr(o['total_cost_inr'])} | {o['lead_days']}d"
+                f"Stockout {risk_label(o)} | {inr(o['total_cost_inr'])} | {o['lead_days']}d"
                 + ("" if o.get("within_budget", True) else " | over budget")
             ),
         }
@@ -210,6 +210,15 @@ def parse_selection(text, pending):
         if o["id"].lower() in low:
             return i
     return None
+
+
+def risk_label(r) -> str:
+    """0 simulated stockouts is reported with its 95% upper bound, never as "0%" (engine 1.1 fields)."""
+    k, n = r.get("stockout_runs"), r.get("runs")
+    p = r.get("stockout_prob") or 0
+    if k == 0 and n:
+        return f"0/{n:,} runs (95% bound <{(r.get('stockout_prob_upper95') or 3.0 / n) * 100:.1f}%)"
+    return f"{p * 100:.1f}%" if p < 0.1 else f"{round(p * 100)}%"
 
 
 def pct(p) -> str:
@@ -410,8 +419,8 @@ def format_result(req, items, meta):
     rows = sorted(items, key=lambda r: r["days_of_cover"]) if req["kind"] == "brief" else items
     for r in rows[:3]:
         lines.append(
-            f"- {r['item']}: {r['days_of_cover']} days of cover, stockout risk "
-            f"{pct(r['stockout_prob'])} ({r['severity']})"
+            f"- {r['item']}: {r['days_of_cover']} days of cover, simulated stockout "
+            f"{risk_label(r)} ({r['severity']})"
         )
 
     pending = None
@@ -421,7 +430,7 @@ def format_result(req, items, meta):
             "",
             f"**{f['item']}**: stock {f['stock_now']:,}, demand {f['daily_demand']}/day, "
             f"{f['days_of_cover']} days of cover, primary supplier {sup_label} ({f['primary_lead_days']}d lead), "
-            f"stockout risk {pct(f['stockout_prob'])}, risk score {f['risk_score']}, "
+            f"simulated stockout {risk_label(f)}, risk score {f['risk_score']}, "
             f"expected unmet {f['expected_unmet_units']} units",
         ]
 
@@ -433,13 +442,13 @@ def format_result(req, items, meta):
 
         lines += [
             "",
-            f"**Fix options for {f['item']}** (current plan: stockout risk {pct(f['stockout_prob'])}, "
+            f"**Fix options for {f['item']}** (current plan: simulated stockout {risk_label(f)}, "
             f"first stockout ~day {f.get('expected_first_stockout_day') or '-'})",
         ]
         for i, o in enumerate(opts, 1):
             budget_flag = "" if o["within_budget"] else " (over budget)"
             rec_flag = "  **<- recommended**" if o["id"] == rec else ""
-            lines.append(f"{i}. {o['label']} | risk {pct(o['stockout_prob'])} | {inr(o['total_cost_inr'])}{budget_flag}{rec_flag}")
+            lines.append(f"{i}. {o['label']} | stockout {risk_label(o)} | {inr(o['total_cost_inr'])}{budget_flag}{rec_flag}")
 
         if f.get("recommendation_reason"):
             lines.append("Why: " + f["recommendation_reason"])
@@ -469,13 +478,15 @@ def make_po(p, o):
     po_no = f"PO-{now:%Y%m%d}-{uuid4().hex[:4].upper()}"
     transfers = o.get("transfers") or []
     sid = o.get("supplier_id")
-    order_qty = o.get("order_qty", o.get("qty", 0) if sid else 0)
+    # Engine 1.1 sends supplier and transfer quantities/costs separately; never derive them from the total.
+    order_qty = o.get("supplier_order_qty", o.get("order_qty", 0))
     lines = [f"**Approved: {o['label']}**", ""]
 
     if sid and order_qty:
         sup = SUPPLIERS.get(sid, sid)
-        supplier_cost = o["total_cost_inr"] - TRANSFER_COST_INR * len(transfers)
-        unit = supplier_cost / order_qty
+        supplier_cost = o.get("supplier_cost_inr",
+                              o["total_cost_inr"] - sum(t.get("cost_inr", TRANSFER_COST_INR) for t in transfers))
+        unit = o.get("supplier_unit_cost_inr") or supplier_cost / order_qty
         exp = o.get("type") == "expedited_order"
         lines += [
             "**Purchase order**", "```",
@@ -499,14 +510,14 @@ def make_po(p, o):
     for t in transfers:
         lines.append(
             f"**Transfer request to {t['name']}**: please send {t['qty']:,} units of {p['item']} today "
-            f"(est. logistics {inr(TRANSFER_COST_INR)})."
+            f"(ETA ~{t.get('eta_days', 1)}d, est. logistics {inr(t.get('cost_inr', TRANSFER_COST_INR))})."
         )
     if not transfers and o.get("type") in ("transfer", "bridge"):
         lines.append("**Transfer request** sent to sister hospitals for their spare units.")
 
     lines += [
         "",
-        f"Total plan cost: {inr(o['total_cost_inr'])}. Expected stockout risk after this plan: {pct(o['stockout_prob'])}.",
+        f"Total plan cost: {inr(o['total_cost_inr'])}. Simulated stockout after this plan: {risk_label(o)} (model estimate, not a guarantee).",
         FOOTER,
     ]
     return po_no, "\n".join(lines)
