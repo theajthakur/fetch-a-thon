@@ -43,7 +43,7 @@ Every number comes from deterministic, seeded code, so repeating the request giv
 |---|---|
 | ASI:One shared chat (full demo workflow) | [Open the Chat](https://asi1.ai/shared-chat/83b018cc-2d15-4191-9024-216ef503adc7) |
 | Live verified FET payment (Dorado) | [Tx `26759D51...`](https://explore-dorado.fetch.ai/transactions/26759D5105D9AEEB3B1A084B3CFB99EC8EFCF81EB74AE3D6228D8B265004F612) |
-| Demo video | [PASTE VIDEO URL] |
+| Demo video | [play Video](https://youtu.be/jtSdXPcE3Yo) |
 | Action Agent (entry point) | [Agentverse profile](https://agentverse.ai/agents/details/agent1qt5pyuj973nk3rz8q3r8nxckk2kv3xr9zuw7qj8j3vuqa7h7lqu0jzqwjmj/profile) |
 | Inventory Agent | [Agentverse profile](https://agentverse.ai/agents/details/agent1qw5sdhru2eml9w08k65waf0rnqpxz6xazqvcmnen57t4p75gvgegjke70eg/profile) |
 | Simulation Agent | [Agentverse profile](https://agentverse.ai/agents/details/agent1q229ftx9ae3vlwjy87hw7cnvaa6dm8g99q5lh0ky5e824kz69xcage63jj3/profile) |
