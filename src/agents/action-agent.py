@@ -21,6 +21,10 @@ SIMULATION_ADDR = "PASTE_SIMULATION_AGENT_ADDRESS"
 INV_TIMEOUT = 15   # seconds before falling back to the Simulation Agent's embedded snapshot
 SIM_TIMEOUT = 40   # seconds before telling the user the simulation is unavailable
 TRANSFER_COST_INR = 1500
+LLM_TIMEOUT = 8        # seconds; keyword fallback after this
+LLM_COOLDOWN = 600     # seconds to skip the LLM after a quota/auth error (saves ~1s per message)
+SYNC_PERIOD = 60.0     # Action Agent pulls a fresh snapshot from the Inventory Agent this often
+CACHE_MAX_AGE = 300    # seconds a synced snapshot may be used directly (removes one hop from each request)
 IST = timezone(timedelta(hours=5, minutes=30))
 
 
@@ -59,7 +63,7 @@ DEFAULT_PREFS = {"preferred_suppliers": [], "budget_cap_inr": 600000}
 
 SYSTEM_PROMPT = """You convert a hospital supply-chain manager's message into JSON for a simulation engine.
 Reply with ONE JSON object only, no markdown, no prose:
-{"intent": "simulate" | "brief" | "set_preference" | "help",
+{"intent": "simulate" | "brief" | "set_preference" | "help" | "none",
  "scenario": null | {"id": "SC1"|"SC2"|"SC3"} | {"supplier_id": "SUP0x", "delay_days": int, "demand_multiplier": {"<item name>": float}, "spoilage_pct": float},
  "item": "<item the user cares about, or null>",
  "preferences": {"preferred_suppliers": ["SUP0x"], "budget_cap_inr": int}}
@@ -68,7 +72,8 @@ Rules:
 - "+30% demand" -> 1.3. A demand change with no item -> "demand_multiplier": <float>. Heatwave or fridge failure -> "spoilage_pct" (default 0.25).
 - status, today's risks, risk brief, morning brief -> "brief" with scenario null.
 - naming a preferred supplier or a budget -> put it in "preferences" (only fields stated); with no what-if, intent is "set_preference". 1 lakh = 100000.
-- greetings or unclear -> "help".
+- greetings or unclear questions -> "help".
+- "none" when the message is commentary, a summary of earlier results, an acknowledgement or advice (e.g. "budget is now set", "nothing to do", "the scenario is in good shape") rather than a NEW instruction. Only use "set_preference" when the message tells you to set or change a supplier preference or budget.
 Presets: SC1 = SUP01 delayed 10 days + insulin demand +30%; SC2 = heatwave cold-chain failure (25% spoilage); SC3 = respiratory outbreak (oxygen x1.6, N95 x1.5).
 Items: insulin, hepatitis B vaccine, oxytocin, oxygen cylinder, adrenaline, ceftriaxone, normal saline, heparin, surgical gloves, N95 mask, IV cannula, paracetamol.
 Suppliers: """ + ", ".join(f"{k} = {v}" for k, v in SUPPLIERS.items())
@@ -126,7 +131,7 @@ def clean_prefs(p):
         if ids:
             out["preferred_suppliers"] = ids
         try:
-            if p.get("budget_cap_inr") and int(p["budget_cap_inr"]) > 0:
+            if p.get("budget_cap_inr") and int(p["budget_cap_inr"]) >= 10000:
                 out["budget_cap_inr"] = int(p["budget_cap_inr"])
         except (TypeError, ValueError):
             pass
@@ -144,54 +149,84 @@ def _asi1_sync(text: str) -> str:
     return r.choices[0].message.content or ""
 
 
+def _budget(t):
+    for pat in (r"budget\D{0,25}?(?<![\d.])(\d[\d,]*(?:\.\d+)?)\s*(lakh|lac|k)?\b",
+                r"(?<![\d.])(\d[\d,]*(?:\.\d+)?)\s*(lakh|lac|k)\b[^.]{0,20}budget"):
+        m = re.search(pat, t)
+        if m:
+            v = float(m.group(1).replace(",", "")) * {"lakh": 1e5, "lac": 1e5, "k": 1e3}.get(m.group(2) or "", 1)
+            if v >= 10000:
+                return int(v)
+    return None
+
+
+def _named_suppliers(t):
+    return [sid for sid, n in SUPPLIERS.items()
+            if re.search(r"\b" + sid.lower() + r"\b", t) or n.lower().split()[0] in t]
+
+
 def keyword_parse(text: str) -> dict:
+    """Strict fallback parser: only acts on explicit phrasing, so paraphrased chatter can't trigger
+    bogus scenarios (e.g. '5.4 days of cover' is not a delay, '1% risk' is not a demand surge)."""
     t = text.lower()
     item = next((w for w in ITEM_WORDS if w in t), None)
     item = ITEM_ALIASES.get(item, item)
     prefs = {}
-    b = re.search(r"budget[^\d]*(\d[\d,.]*)\s*(lakh|lac|k)?", t)
+    b = _budget(t)
     if b:
-        v = float(b.group(1).replace(",", ""))
-        prefs["budget_cap_inr"] = int(v * {"lakh": 100000, "lac": 100000, "k": 1000}.get(b.group(2), 1))
-    if "prefer" in t:
-        ids = [sid for sid, n in SUPPLIERS.items() if sid.lower() in t or n.lower().split()[0] in t]
+        prefs["budget_cap_inr"] = b
+    if re.search(r"\bprefer(?:red)?\b|\bswitch to\b", t):
+        ids = _named_suppliers(t)
         if ids:
             prefs["preferred_suppliers"] = ids
     preset = re.search(r"\bsc\s?([123])\b", t)
-    sup = re.search(r"\bsup\s?0?([1-7])\b", t)
-    days = re.search(r"(\d+)\s*day", t)
-    surge = re.search(r"([+-]?\d+)\s*%", t)
     if preset:
         return {"intent": "simulate", "scenario": {"id": "SC" + preset.group(1)}, "item": item, "preferences": prefs}
-    if sup or (days and "delay" in t) or surge or "heatwave" in t:
+    delay = (re.search(r"delay\w*\D{0,25}?(?<![\d.])(\d+)\s*days?\b", t)
+             or re.search(r"(?<![\d.])(\d+)\s*days?\s*(?:of\s+)?delay", t))
+    surge = (re.search(r"demand\D{0,30}?(?<![\d.])([+-]?\d+(?:\.\d+)?)\s*%", t)
+             or re.search(r"(?<![\d.])([+-]?\d+(?:\.\d+)?)\s*%\s*(?:more|higher|increase|rise|surge|jump)?\s*(?:in\s+)?\w*\s*demand", t))
+    spoil = re.search(r"heatwave|heat wave|fridge|cold[- ]chain (?:failure|break)", t)
+    if delay or surge or spoil:
         sc = {}
-        if sup:
-            sc["supplier_id"] = "SUP0" + sup.group(1)
-        if days:
-            sc["delay_days"] = int(days.group(1))
+        if delay:
+            sc["delay_days"] = int(delay.group(1))
+            sup = re.search(r"\bsup\s?0?([1-7])\b", t)
+            named = _named_suppliers(t)
+            if sup:
+                sc["supplier_id"] = "SUP0" + sup.group(1)
+            elif named:
+                sc["supplier_id"] = named[0]
         if surge:
-            m = 1 + int(surge.group(1)) / 100.0
+            m = 1 + float(surge.group(1)) / 100.0
             sc["demand_multiplier"] = {item: m} if item else m
-        if "heatwave" in t or "fridge" in t:
+        if spoil:
             sc["spoilage_pct"] = 0.25
         return {"intent": "simulate", "scenario": sc, "item": item, "preferences": prefs}
     if prefs:
         return {"intent": "set_preference", "preferences": prefs}
-    if any(w in t for w in ("brief", "risk", "status", "today")):
-        return {"intent": "brief"}
     if item:
         return {"intent": "simulate", "scenario": None, "item": item}
+    if any(w in t for w in ("brief", "risk", "status", "today", "overview")):
+        return {"intent": "brief"}
     return {"intent": "help"}
 
 
 async def parse_intent(ctx: Context, text: str):
+    if time.time() < (ctx.storage.get("llm_off_until") or 0):
+        return keyword_parse(text), "keyword-fallback (LLM paused)"
     try:
-        raw = await asyncio.wait_for(asyncio.to_thread(_asi1_sync, text), timeout=20)
+        raw = await asyncio.wait_for(asyncio.to_thread(_asi1_sync, text), timeout=LLM_TIMEOUT)
         j = json.loads(raw[raw.index("{"): raw.rindex("}") + 1])
-        if j.get("intent") in ("simulate", "brief", "set_preference", "help"):
+        if j.get("intent") in ("simulate", "brief", "set_preference", "help", "none"):
             return j, "asi1"
     except Exception as e:
-        ctx.logger.warning(f"ASI:One parse failed, using keyword fallback: {e}")
+        err = str(e)
+        if any(k in err for k in ("insufficient_quota", "403", "401", "No module named")):
+            ctx.storage.set("llm_off_until", time.time() + LLM_COOLDOWN)
+            ctx.logger.warning(f"LLM unavailable, pausing it for {LLM_COOLDOWN}s: {err[:120]}")
+        else:
+            ctx.logger.warning(f"ASI:One parse failed, using keyword fallback: {err[:120]}")
     return keyword_parse(text), "keyword-fallback"
 
 
@@ -207,10 +242,16 @@ def close_req(ctx: Context, rid: str):
 
 async def start_run(ctx, user, scenario, item, prefs, kind, intro=""):
     rid = uuid4().hex[:8]
-    ctx.storage.set(f"req_{rid}", {"user": user, "scenario": scenario, "item": item, "prefs": prefs,
-                                   "kind": kind, "intro": intro, "notes": [], "stage": "inventory",
-                                   "t": time.time()})
+    req = {"user": user, "scenario": scenario, "item": item, "prefs": prefs, "kind": kind,
+           "intro": intro, "notes": [], "stage": "inventory", "t": time.time(), "source": ""}
     ctx.storage.set("open_rids", _open(ctx) + [rid])
+    cache = ctx.storage.get("inv_cache")
+    if cache and cache.get("items") and time.time() - cache["t"] < CACHE_MAX_AGE:
+        req["source"] = f"Stock synced from Inventory Agent {int(time.time() - cache['t'])}s ago."
+        ctx.logger.info(f"[{rid}] using synced inventory | kind={kind} scenario={scenario} item={item}")
+        await send_sim(ctx, rid, req, cache["items"])
+        return
+    ctx.storage.set(f"req_{rid}", req)
     await ctx.send(INVENTORY_ADDR, StockRequest(request_id=rid, focus_items=[]))
     ctx.logger.info(f"[{rid}] -> Inventory | kind={kind} scenario={scenario} item={item}")
 
@@ -234,10 +275,17 @@ def format_result(req, items, meta):
     L += [f"**{head}**",
           f"Risk overview: {s.get('critical', 0)} critical, {s.get('high', 0)} high, "
           f"{s.get('medium', 0)} medium, {s.get('low', 0)} low", ""]
-    for r in items[:3]:
+    rows = sorted(items, key=lambda r: r["days_of_cover"]) if req["kind"] == "brief" else items
+    for r in rows[:3]:
         L.append(f"- {r['item']}: {r['days_of_cover']} days of cover, stockout risk "
                  f"{pct(r['stockout_prob'])} ({r['severity']})")
     pending = None
+    if f:
+        L += ["", f"**{f['item']}**: stock {f['stock_now']:,}, demand {f['daily_demand']}/day, "
+                  f"{f['days_of_cover']} days of cover, primary supplier "
+                  f"{SUPPLIERS.get(f['primary_supplier'], f['primary_supplier'])} ({f['primary_lead_days']}d lead), "
+                  f"stockout risk {pct(f['stockout_prob'])}, risk score {f['risk_score']}, "
+                  f"expected unmet {f['expected_unmet_units']} units"]
     if f and f.get("options"):
         rec, allopts = f.get("recommended"), f["options"]
         opts = allopts[:4]
@@ -255,13 +303,15 @@ def format_result(req, items, meta):
         pending = {"item": f["item"], "item_id": f.get("item_id"), "options": opts, "recommended": rec,
                    "scenario": sc.get("name", "the current disruption")}
     elif f and f.get("note"):
-        L += ["", f"{f['item']}: {f['note']}"]
+        L.append(f["note"])
     elif req["kind"] == "brief":
         L += ["", "No item needs action today. Ask a what-if, e.g. *What if SUP01 is delayed 10 days "
                   "and insulin demand rises 30%?*"]
     notes = req.get("notes", []) + meta.get("warnings", [])
     if "embedded" in str(meta.get("data_source", "")) and not req.get("notes"):
         notes.append("Used the Simulation Agent's stored snapshot (inventory data unavailable).")
+    if req.get("source"):
+        notes.append(req["source"])
     L += [""] + [f"_Note: {n}_" for n in notes] + [FOOTER]
     return "\n".join(L), pending
 
@@ -308,6 +358,13 @@ def make_po(p, o):
 @agent.on_event("startup")
 async def on_start(ctx: Context):
     ctx.logger.info(f"Action Agent up. Address: {ctx.agent.address}")
+    await ctx.send(INVENTORY_ADDR, StockRequest(request_id="sync"))
+
+
+@agent.on_interval(period=SYNC_PERIOD)
+async def sync_inventory(ctx: Context):
+    """Keep a live copy of the Inventory twin so user requests go straight to the Simulation Agent."""
+    await ctx.send(INVENTORY_ADDR, StockRequest(request_id="sync"))
 
 
 @chat_proto.on_message(ChatMessage)
@@ -317,8 +374,22 @@ async def on_chat(ctx: Context, sender: str, msg: ChatMessage):
     text = " ".join(c.text for c in msg.content if isinstance(c, TextContent)).strip()
     if not text:
         return
-    ctx.logger.info(f"User {sender[:16]}...: {text}")
+    mid = str(msg.msg_id)
+    seen = ctx.storage.get("seen_msgs") or []
+    last = ctx.storage.get(f"lasttext_{sender}") or {}
+    if mid in seen or (last.get("text") == text and time.time() - last.get("t", 0) < 20):
+        ctx.logger.info("Duplicate message ignored")
+        return
+    ctx.storage.set("seen_msgs", (seen + [mid])[-100:])
+    ctx.storage.set(f"lasttext_{sender}", {"text": text, "t": time.time()})
+    ctx.logger.info(f"User {sender[:16]}...: {text[:300]}")
     t = text.lower()
+
+    if re.search(r"\breset\b.*\b(preferences|prefs|settings)\b", t):
+        for k in ("prefs", "pending", "last"):
+            ctx.storage.set(f"{k}_{sender}", None)
+        await reply(ctx, sender, "Preferences reset to defaults (no preferred supplier, budget cap Rs 600,000).")
+        return
 
     # 1. pending approval (deterministic, no LLM needed)
     pending = ctx.storage.get(f"pending_{sender}")
@@ -350,10 +421,17 @@ async def on_chat(ctx: Context, sender: str, msg: ChatMessage):
     intent, src = await parse_intent(ctx, text)
     ctx.logger.info(f"Intent via {src}: {intent}")
     kind = intent.get("intent")
-    new_prefs = clean_prefs(intent.get("preferences"))
+    if kind == "none":
+        await reply(ctx, sender, "Noted. Ask for today's risk brief, a what-if scenario, or reply YES/NO to a pending plan.")
+        return
+    old = ctx.storage.get(f"prefs_{sender}") or {}
+    new_prefs = {k: v for k, v in clean_prefs(intent.get("preferences")).items() if old.get(k) != v}
+    if kind == "set_preference" and not new_prefs and clean_prefs(intent.get("preferences")):
+        await reply(ctx, sender, "Those preferences are already saved; nothing changed.")
+        return
     intro = ""
     if new_prefs:
-        saved = {**(ctx.storage.get(f"prefs_{sender}") or {}), **new_prefs}
+        saved = {**old, **new_prefs}
         ctx.storage.set(f"prefs_{sender}", saved)
         bits = []
         if saved.get("preferred_suppliers"):
@@ -389,6 +467,11 @@ async def on_ack(ctx: Context, sender: str, msg: ChatAcknowledgement):
 
 @agent.on_message(model=StockSnapshot)
 async def on_snapshot(ctx: Context, sender: str, msg: StockSnapshot):
+    if msg.items:
+        ctx.storage.set("inv_cache", {"items": msg.items, "t": time.time()})
+    if msg.request_id == "sync":
+        ctx.logger.info(f"Inventory synced: {len(msg.items)} items")
+        return
     req = ctx.storage.get(f"req_{msg.request_id}")
     if not req or req.get("stage") != "inventory":
         ctx.logger.info(f"[{msg.request_id}] late/unknown StockSnapshot ignored")
