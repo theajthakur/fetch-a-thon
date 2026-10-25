@@ -40,15 +40,46 @@ MediTwin configures its agents via environment variables or `.env` files:
 |---|---|---|---|
 | `INVENTORY_ADDR` | **Yes** (in production) | Code constant | Bech32 uAgent address of the Inventory Agent (`agent1qw5...`) |
 | `SIMULATION_ADDR` | **Yes** (in production) | Code constant | Bech32 uAgent address of the Simulation Agent (`agent1q22...`) |
-| `ASI1_API_KEY` | Optional | `""` | ASI:One LLM API token. If omitted or quota exhausted, the agent automatically falls back to the keyword parser. |
+| `PAYMENT_ADDR` | Optional | `""` | Bech32 uAgent address of the Payment Agent (`agent1qfx...`). Enables in-chat payment step. |
+| `PAYMENT_HANDLE` | Optional | `@meditwin-payment` | ASI:One handle for the Payment Agent |
+| `ASI1_API_KEY` | Optional | `""` | ASI:One LLM API token. If omitted or quota exhausted, falls back to keyword parser. |
 | `ASI1_BASE_URL` | Optional | `https://api.asi1.ai/v1` | Base URL for the OpenAI-compatible ASI:One LLM gateway |
+| `DEFAULT_PAY_METHOD` | Optional | `fet` | Default payment rail (`fet` for Fetch.ai testnet or `stripe` for card test mode) |
+| `FET_AMOUNT` | Optional | `0.1` | Demo settlement amount in testnet FET |
+| `FET_USE_TESTNET` | Optional | `true` | Use Dorado testnet (`true` -> `atestfet`) or mainnet (`false` -> `afet`) |
+| `STRIPE_SECRET_KEY` | Optional (card only) | `""` | Stripe secret test key (`sk_test_...`; live keys rejected) |
+| `STRIPE_PUBLISHABLE_KEY` | Optional (card only) | `""` | Stripe publishable test key (`pk_test_...`) |
+| `STRIPE_CURRENCY` | Optional | `usd` | Stripe charge currency |
+| `INR_PER_USD` | Optional | `84` | Conversion rate from INR to USD for Stripe charges |
+| `STRIPE_SUCCESS_URL` | Optional | `https://agentverse.ai/payment-success` | Redirect target after Stripe checkout |
+| `DEFAULT_ADVANCE_PCT` | Optional | `10` | Supplier advance payment percentage |
 
 ### Sample `.env` File:
 ```env
+# Agent Network & Almanac Addresses
 INVENTORY_ADDR="agent1qw5sdhru2eml9w08k65waf0rnqpxz6xazqvcmnen57t4p75gvgegjke70eg"
 SIMULATION_ADDR="agent1q229ftx9ae3vlwjy87hw7cnvaa6dm8g99q5lh0ky5e824kz69xcage63jj3"
-ASI1_API_KEY="your-asi1-api-key"
+PAYMENT_ADDR="agent1qfx0vc5d6gqg7dcxqc3qm0qh47slda53khgyhvst03tyye32zq9gzv5tv47"
+PAYMENT_HANDLE="@meditwin-payment"
+
+# ASI:One LLM Gateway
 ASI1_BASE_URL="https://api.asi1.ai/v1"
+ASI1_API_KEY="your-asi1-api-key"
+
+# Settlement & Payment Protocol
+DEFAULT_PAY_METHOD="fet"
+FET_AMOUNT="0.1"
+FET_USE_TESTNET="true"
+
+# Stripe Test Mode Keys & Configuration
+STRIPE_SECRET_KEY="sk_test_your_test_secret_key"
+STRIPE_PUBLISHABLE_KEY="pk_test_your_test_publishable_key"
+STRIPE_CURRENCY="usd"
+INR_PER_USD="84"
+STRIPE_SUCCESS_URL="https://agentverse.ai/payment-success"
+
+# Supply Chain Procurement Defaults
+DEFAULT_ADVANCE_PCT="10"
 ```
 
 ---

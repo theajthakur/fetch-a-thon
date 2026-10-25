@@ -2,6 +2,23 @@
 
 # MediTwin: a Digital Twin for the Medical Supply Chain
 
+<div align="center">
+
+<p align="center">
+  <a href="https://fetch.ai" target="_blank">
+    <img src="assets/fetch-logo.svg" height="28" alt="Fetch.ai" />
+  </a>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://agentverse.ai" target="_blank">
+    <img src="assets/agentverse-logo.svg" height="28" alt="Agentverse" />
+    <img src="https://img.shields.io/badge/Agentverse-101827?style=flat&logoColor=white&labelColor=101827" height="26" alt="Agentverse" />
+  </a>
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://asi1.ai" target="_blank">
+    <img src="assets/asi1-logo.svg" height="28" alt="ASI:One" />
+  </a>
+</p>
+
 ![tag:innovationlab](https://img.shields.io/badge/innovationlab-3D8BD3)
 ![tag:hackathon](https://img.shields.io/badge/hackathon-5F43F1)
 ![agents](https://img.shields.io/badge/agents-4%20hosted%20on%20Agentverse-2ea44f)
@@ -15,6 +32,8 @@
 [![CI passing](https://img.shields.io/badge/CI-passing-2ea44f?logo=githubactions&logoColor=white)](https://github.com/theajthakur/fetch-a-thon/actions/workflows/ci.yml)
 ![tests](https://img.shields.io/badge/tests-20%20passing-2ea44f)
 ![data](https://img.shields.io/badge/data-synthetic-orange)
+
+</div>
 
 > **Hospitals find out about a medicine shortage when the shelf is empty.**
 > MediTwin is a four-agent system built end to end on the Fetch.ai stack. It keeps a live digital twin of a hospital's supply chain, simulates a disruption *before* it hits, and turns the result into an approved purchase order, supplier email, inter-hospital transfer requests and a **supplier advance paid in FET and verified on-chain**, all inside one ASI:One conversation.
@@ -39,16 +58,16 @@ Every number comes from deterministic, seeded code, so repeating the request giv
 
 ## Quick links
 
-| Item | Link |
-|---|---|
-| ASI:One shared chat (full demo workflow) | [Open the Chat](https://asi1.ai/shared-chat/83b018cc-2d15-4191-9024-216ef503adc7) |
-| Live verified FET payment (Dorado) | [Tx `26759D51...`](https://explore-dorado.fetch.ai/transactions/26759D5105D9AEEB3B1A084B3CFB99EC8EFCF81EB74AE3D6228D8B265004F612) |
-| Demo video | [play Video](https://youtu.be/dX7en8eoTUk) |
-| Action Agent (entry point) | [Agentverse profile](https://agentverse.ai/agents/details/agent1qt5pyuj973nk3rz8q3r8nxckk2kv3xr9zuw7qj8j3vuqa7h7lqu0jzqwjmj/profile) |
-| Inventory Agent | [Agentverse profile](https://agentverse.ai/agents/details/agent1qw5sdhru2eml9w08k65waf0rnqpxz6xazqvcmnen57t4p75gvgegjke70eg/profile) |
-| Simulation Agent | [Agentverse profile](https://agentverse.ai/agents/details/agent1q229ftx9ae3vlwjy87hw7cnvaa6dm8g99q5lh0ky5e824kz69xcage63jj3/profile) |
-| Payment Agent | [Agentverse profile](https://agentverse.ai/agents/details/agent1qfx0vc5d6gqg7dcxqc3qm0qh47slda53khgyhvst03tyye32zq9gzv5tv47/profile) |
-| Full documentation | [`docs/`](docs/README.md) |
+| Platform / Service | Link | Description |
+|---|---|---|
+| <a href="https://asi1.ai"><img src="assets/asi1-logo.svg" height="18" alt="ASI:One" /></a> **Chat** | [Open Shared Chat](https://asi1.ai/shared-chat/83b018cc-2d15-4191-9024-216ef503adc7) | Complete intent-to-action demo run in one chat |
+| <a href="https://fetch.ai"><img src="assets/fetch-logo.svg" height="16" alt="Fetch.ai" /></a> **Ledger** | [Tx `26759D51...`](https://explore-dorado.fetch.ai/transactions/26759D5105D9AEEB3B1A084B3CFB99EC8EFCF81EB74AE3D6228D8B265004F612) | Live verified FET supplier advance (Dorado testnet) |
+| 🎬 **Demo Video** | [Watch Video](https://youtu.be/dX7en8eoTUk) | Full end-to-end workflow walkthrough |
+| <a href="https://agentverse.ai"><img src="assets/agentverse-logo.svg" height="18" alt="Agentverse" /></a> **Action Agent** | [Agentverse Profile](https://agentverse.ai/agents/details/agent1qt5pyuj973nk3rz8q3r8nxckk2kv3xr9zuw7qj8j3vuqa7h7lqu0jzqwjmj/profile) | Orchestrator & personal AI (`@supply-chain-action`) |
+| <a href="https://agentverse.ai"><img src="assets/agentverse-logo.svg" height="18" alt="Agentverse" /></a> **Inventory Agent** | [Agentverse Profile](https://agentverse.ai/agents/details/agent1qw5sdhru2eml9w08k65waf0rnqpxz6xazqvcmnen57t4p75gvgegjke70eg/profile) | Digital-twin state (`meditwin-inventory`) |
+| <a href="https://agentverse.ai"><img src="assets/agentverse-logo.svg" height="18" alt="Agentverse" /></a> **Simulation Agent** | [Agentverse Profile](https://agentverse.ai/agents/details/agent1q229ftx9ae3vlwjy87hw7cnvaa6dm8g99q5lh0ky5e824kz69xcage63jj3/profile) | Monte Carlo engine (`meditwin-simulation`) |
+| <a href="https://agentverse.ai"><img src="assets/agentverse-logo.svg" height="18" alt="Agentverse" /></a> **Payment Agent** | [Agentverse Profile](https://agentverse.ai/agents/details/agent1qfx0vc5d6gqg7dcxqc3qm0qh47slda53khgyhvst03tyye32zq9gzv5tv47/profile) | Agent Payment Protocol seller (`@meditwin-payment`) |
+| 📚 **Documentation** | [Read Guides](docs/README.md) | Technical specs, architecture diagrams & runbooks |
 
 ## Screenshots: intent to action in ASI:One
 
@@ -82,6 +101,15 @@ Medical stockouts are rarely sudden. A supplier slips, demand rises, a cold-chai
 **Outcome:** in one conversation, a ranked set of costed fixes with simulated stockout risk, then (on approval) a purchase order, a supplier email, inter-hospital transfer requests and a verified supplier advance payment with a receipt.
 
 ## 2. Built on the Fetch.ai ecosystem
+
+<div align="center">
+
+| <a href="https://fetch.ai" target="_blank"><img src="assets/fetch-logo.svg" height="28" alt="Fetch.ai" /></a> | <a href="https://agentverse.ai" target="_blank"><img src="assets/agentverse-logo.svg" height="28" alt="Agentverse" /><br/><b>Agentverse Cloud</b></a> | <a href="https://asi1.ai" target="_blank"><img src="assets/asi1-logo.svg" height="28" alt="ASI:One" /></a> |
+|:---:|:---:|:---:|
+| **Foundational Protocol &amp; Settlement** | **Multi-Agent Runtime &amp; Registry** | **Unified Conversational Interface** |
+| • **uAgents framework** with typed Pydantic models<br/>• **CosmPy ledger queries** on Dorado testnet<br/>• **Agent Payment Protocol** for on-chain FET settlement | • **4 hosted agents** running 24/7 in cloud<br/>• **Almanac decentralized discovery**<br/>• **Interval timers** (60s sync, 5s watchdog) | • **Personal AI client** for procurement managers<br/>• **ASI:One LLM** (`asi1`) for structured intent extraction<br/>• **Interactive Decision &amp; Payment Cards** |
+
+</div>
 
 | Fetch.ai component | How MediTwin uses it |
 |---|---|
@@ -294,6 +322,7 @@ Agent:  Payment Agent: Payment received (verified on the Fetch.ai testnet)
 ```text
 .
 ├── README.md
+├── .env.example                     # Pre-configured demo environment variables template
 ├── requirements.txt                 # uagents, uagents-core, openai (agents only; tests need none)
 ├── src/
 │   ├── main.py                      # CLI: runs the engine from simulation-agent.py, no installs
@@ -309,6 +338,12 @@ Agent:  Payment Agent: Payment received (verified on the Fetch.ai testnet)
 │   ├── check_payment_agent.py       # Offline payment checks (mocked Stripe and ledger)
 │   └── send_test_fet.py             # Funds a throwaway testnet wallet and sends FET to the Payment Agent
 └── docs/                            # See section 11
+```
+
+**Environment configuration**
+
+```bash
+cp .env.example .env                                 # copies pre-configured demo environment variables
 ```
 
 **Run from a clean checkout (standard library only, no installs)**
